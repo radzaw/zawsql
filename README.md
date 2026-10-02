@@ -4,6 +4,8 @@ A lightweight MySQL / MariaDB desktop client in the spirit of HeidiSQL, written 
 
 The backend is an ASP.NET Core app that talks to the database (via [MySqlConnector](https://mysqlconnector.net/)). The UI is plain HTML/CSS/JS embedded in the executable. ZawSQL opens it in a chromeless **app-mode window** of an installed Chromium browser (Chrome, Edge, Chromium or Brave), so it looks and behaves like a desktop window on **Windows, Linux and macOS**. Closing the window quits the app.
 
+![ZawSQL main window: object tree, database tab listing all tables with rows, size, engine and collation, and the SQL log](docs/database-view.webp)
+
 ## Features
 
 - **Session manager**: saved connections (TCP/IP or Unix socket), SSL modes, compression, database filter, connection test. Saved passwords are encrypted (AES-GCM) with a per-user key.
@@ -30,6 +32,24 @@ The backend is an ASP.NET Core app that talks to the database (via [MySqlConnect
 - **Editable query results**: when a result's table columns all come from one table and include its primary/unique key, you can edit, insert and delete rows right in the result grid (aliased columns work too; computed columns stay read-only). The header shows "Editable: db.table", or "Read-only" with the reason as a tooltip.
 - **Export / import**: dump a database or selected tables to SQL (structure, data, routines, triggers, events). Export grid rows as CSV, TSV, SQL, JSON, Markdown or HTML. Run large SQL files with a progress dialog.
 - SQL log panel, status bar, light/dark theme.
+
+## Screenshots
+
+**Session manager**: saved connections with SSL, compression and read-only options.
+
+![Session manager dialog with connection settings](docs/connection-window.webp)
+
+**Data tab**: editable grid with typed coloring, key icons, paging, filters and a context menu for editing, quick filters and export.
+
+![Data grid with context menu](docs/data-grid.webp)
+
+**Table editor**: columns, indexes, foreign keys, partitions, plus live CREATE and ALTER code.
+
+![Table structure editor](docs/table-editor.webp)
+
+**User manager**: accounts, passwords, limits, privileges and roles.
+
+![User manager dialog](docs/user-manager.webp)
 
 ## Requirements
 
