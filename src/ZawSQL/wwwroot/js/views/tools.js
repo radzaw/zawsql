@@ -8,6 +8,7 @@ import { splitSql } from '../sqlsplit.js';
 // ---------------------------------------------------------------- session manager
 
 const SSL_MODES = ['None', 'Preferred', 'Required', 'VerifyCA', 'VerifyFull'];
+const SESSION_COLORS = ['', '#d13438', '#ca5010', '#c19c00', '#107c10', '#0078d4', '#8764b8', '#69797e'];
 
 export async function sessionManager(app) {
   let sessions = [];
@@ -26,8 +27,26 @@ export async function sessionManager(app) {
     connectTimeout: h('input', { class: 'inp', type: 'number', min: 1, max: 600 }),
     compression: h('input', { type: 'checkbox' }),
     readOnly: h('input', { type: 'checkbox' }),
+    production: h('input', { type: 'checkbox' }),
     comment: h('textarea', { class: 'inp', rows: 3 }),
   };
+  // Session color: preset swatches plus a custom picker; '' = no color.
+  let colorVal = '';
+  const custom = h('input', { type: 'color', class: 'color-custom', title: 'Custom color' });
+  const swatches = h('div', { class: 'swatches' });
+  const setColor = (c, markDirty = true) => {
+    colorVal = c;
+    for (const s of swatches.querySelectorAll('.swatch')) s.classList.toggle('sel', s.dataset.c === c);
+    custom.classList.toggle('sel', !!c && !SESSION_COLORS.includes(c));
+    if (c) custom.value = c;
+    if (markDirty) dirty = true;
+  };
+  swatches.append(...SESSION_COLORS.map(c => h('button', {
+    class: 'swatch' + (c ? '' : ' none'), type: 'button', 'data-c': c, title: c || 'No color',
+    style: c ? { background: c } : null, onclick: () => setColor(c),
+  })), custom);
+  custom.addEventListener('input', () => setColor(custom.value));
+  f.production.addEventListener('change', () => { if (f.production.checked && !colorVal) setColor('#d13438'); });
   const list = h('div', { class: 'sm-list', tabindex: 0 });
   const form = h('div', { class: 'form2 sm-form' },
     row('Session name:', f.name),
@@ -44,6 +63,9 @@ export async function sessionManager(app) {
     row('', h('label', { class: 'chk' }, f.compression, ' Compressed client/server protocol')),
     row('', h('label', { class: 'chk', title: 'Only SELECT, SHOW, DESCRIBE, EXPLAIN and USE can run; editing, DDL and other changes are blocked.' },
       f.readOnly, ' Read-only mode (no changes possible)')),
+    row('', h('label', { class: 'chk', title: 'Highlights the session everywhere and asks for confirmation before any change.' },
+      f.production, ' Production server (confirm every change)')),
+    row('Color:', swatches),
     row('Comment:', f.comment));
   const empty = h('div', { class: 'placeholder' }, 'Create a new session with the "New" button.');
   const right = h('div', { class: 'sm-right' });
@@ -61,7 +83,7 @@ export async function sessionManager(app) {
   }
 
   function renderList() {
-    list.innerHTML = sessions.map((s, i) => `<div class="sm-item${s === cur ? ' sel' : ''}" data-i="${i}">${icon('server')}<span>${esc(s.name || '(unnamed)')}</span>${s.readOnly ? '<span class="ro-badge">read-only</span>' : ''}</div>`).join('')
+    list.innerHTML = sessions.map((s, i) => `<div class="sm-item${s === cur ? ' sel' : ''}" data-i="${i}">${s.color ? `<span class="color-dot" style="background:${s.color}"></span>` : '<span class="color-dot"></span>'}${icon('server')}<span>${esc(s.name || '(unnamed)')}</span>${s.production ? '<span class="prod-badge">prod</span>' : ''}${s.readOnly ? '<span class="ro-badge">read-only</span>' : ''}</div>`).join('')
       || '<div class="muted pad">No saved sessions</div>';
   }
 
@@ -83,6 +105,8 @@ export async function sessionManager(app) {
     f.connectTimeout.value = s.connectTimeout ?? 15;
     f.compression.checked = !!s.compression;
     f.readOnly.checked = !!s.readOnly;
+    f.production.checked = !!s.production;
+    setColor(s.color || '', false);
     f.comment.value = s.comment ?? '';
     renderList();
   }
@@ -101,6 +125,8 @@ export async function sessionManager(app) {
       connectTimeout: parseInt(f.connectTimeout.value, 10) || 15,
       compression: f.compression.checked,
       readOnly: f.readOnly.checked,
+      production: f.production.checked,
+      color: colorVal || null,
       comment: f.comment.value || null,
     };
   }
@@ -340,6 +366,7 @@ export async function runSqlFile(app) {
     buttons: [{ label: 'Run', value: true, primary: true }, { label: 'Cancel', value: false }],
   });
   if (!ok) return;
+  if (!(await app.confirmChanges(sid, { action: `Run SQL file ${file.name} (${fmtNum(stmts.length)} statements)` }))) return;
 
   const bar = h('div', { class: 'progress-bar' });
   const label = h('div');
@@ -409,7 +436,9 @@ export async function createDatabaseDialog(app, sid) {
     buttons: [{
       label: 'OK', primary: true, onClick: async () => {
         if (!name.value.trim()) return false;
-        await app.exec(sid, [code.textContent.replace(/;$/, '')]);
+        const sql = code.textContent.replace(/;$/, '');
+        if (!(await app.confirmChanges(sid, { action: 'Create database', statements: [sql] }))) return false;
+        await app.exec(sid, [sql]);
         return name.value.trim();
       },
     }, { label: 'Cancel', value: null }],
@@ -428,6 +457,7 @@ export async function preferencesDialog(app) {
   const maxRows = h('input', { class: 'inp', type: 'number', min: 1, max: 10000000, value: p.maxResultRows });
   const theme = h('select', { class: 'inp' }, [['system', 'Follow system'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) => h('option', { value: v, selected: v === p.theme }, l)));
   const font = h('input', { class: 'inp', type: 'number', min: 9, max: 24, value: p.editorFontSize });
+  const noWhere = h('input', { type: 'checkbox', checked: p.confirmNoWhere !== false });
   const ok = await modal({
     title: 'Preferences',
     width: 440,
@@ -435,7 +465,8 @@ export async function preferencesDialog(app) {
       h('label', { class: 'frow' }, h('span', null, 'Data tab rows per page:'), rows),
       h('label', { class: 'frow' }, h('span', null, 'Max rows in query results:'), maxRows),
       h('label', { class: 'frow' }, h('span', null, 'Theme:'), theme),
-      h('label', { class: 'frow' }, h('span', null, 'SQL editor font size:'), font)),
+      h('label', { class: 'frow' }, h('span', null, 'SQL editor font size:'), font),
+      h('label', { class: 'frow' }, h('span', null, 'Safety:'), h('label', { class: 'chk' }, noWhere, ' Confirm UPDATE/DELETE without WHERE'))),
     buttons: [{ label: 'OK', value: true, primary: true }, { label: 'Cancel', value: false }],
   });
   if (!ok) return;
@@ -444,6 +475,7 @@ export async function preferencesDialog(app) {
     maxResultRows: Math.max(1, parseInt(maxRows.value, 10) || 10000),
     theme: theme.value,
     editorFontSize: Math.max(9, parseInt(font.value, 10) || 13),
+    confirmNoWhere: noWhere.checked,
   });
   app.applyPrefs();
   app.saveStateSoon();

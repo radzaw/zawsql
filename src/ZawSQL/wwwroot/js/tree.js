@@ -120,8 +120,13 @@ export class Tree {
       const ic = n.type === 'session' ? 'server' : n.type === 'db' ? 'database' : n.type;
       const size = n.type === 'db' ? (n.children ? fmtBytes(n.size) : '') : leaf && n.size != null ? fmtBytes(n.size) : '';
       const title = n.type === 'session' ? `${n.info.user} @ ${n.info.host} – ${n.info.version}` : n.obj?.comment || '';
-      const ro = n.type === 'session' && n.info.readOnly ? '<span class="ro-badge">read-only</span>' : '';
-      return `<div class="tn${n === this.sel ? ' sel' : ''}" data-i="${i}" style="padding-left:${n.depth * 16 + 2}px" title="${esc(title)}"><span class="tw">${tw}</span>${icon(ic)}<span class="tl">${esc(n.label)}</span>${ro}<span class="ts">${size}</span></div>`;
+      const root = n.type === 'session' ? n : n.depth === 1 ? n.parent : n.parent.parent;
+      const color = root.info.color; // validated #rrggbb (backend only stores that format)
+      let badges = '';
+      if (n.type === 'session' && n.info.production) badges += '<span class="prod-badge">prod</span>';
+      if (n.type === 'session' && n.info.readOnly) badges += '<span class="ro-badge">read-only</span>';
+      const cls = `tn${n === this.sel ? ' sel' : ''}${n.type === 'session' ? ' session' : ''}${color ? ' colored' : ''}`;
+      return `<div class="${cls}" data-i="${i}" style="padding-left:${n.depth * 16 + 2}px${color ? ';--sc:' + color : ''}" title="${esc(title)}"><span class="tw">${tw}</span>${icon(ic)}<span class="tl">${esc(n.label)}</span>${badges}<span class="ts">${size}</span></div>`;
     }).join('');
   }
 

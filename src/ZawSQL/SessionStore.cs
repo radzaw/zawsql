@@ -23,6 +23,10 @@ public sealed class SessionProfile
     public bool Compression { get; set; }
     /// <summary>Read-only mode: the backend refuses anything that could change data or schema.</summary>
     public bool ReadOnly { get; set; }
+    /// <summary>Session color as #rrggbb, shown in the tree, tab bar and status bar.</summary>
+    public string? Color { get; set; }
+    /// <summary>Production server: highlighted everywhere and every change must be confirmed.</summary>
+    public bool Production { get; set; }
     public string? Comment { get; set; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -78,6 +82,8 @@ public sealed class SessionStore
             var idx = sessions.FindIndex(s => s.Id == p.Id);
             var existing = idx >= 0 ? sessions[idx] : null;
             var stored = p.Clone();
+            // Only plain #rrggbb colors are stored; the UI puts them into inline styles.
+            if (stored.Color != null && !System.Text.RegularExpressions.Regex.IsMatch(stored.Color, "^#[0-9a-fA-F]{6}$")) stored.Color = null;
             stored.PasswordEnc = !p.SavePassword ? null
                 : p.Password != null ? Protect(p.Password)
                 : existing?.PasswordEnc;

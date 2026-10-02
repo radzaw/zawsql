@@ -583,6 +583,7 @@ export class TableView {
     if (m.code) return this.saveCode();
     const stmts = m.creating ? [this.genCreate()] : this.genAlter();
     if (!stmts.length) return;
+    if (!(await this.app.confirmChanges(m.sid, { action: m.creating ? `Create table ${m.opts.name}` : `Alter table ${m.origOpts.name}`, statements: stmts }))) return;
     try {
       await this.app.exec(m.sid, stmts, m.db);
     } catch (e) {
@@ -630,6 +631,7 @@ export class TableView {
     const stmts = m.type === 'view'
       ? [code.replace(/^\s*CREATE\s+(OR\s+REPLACE\s+)?/i, 'CREATE OR REPLACE ')]
       : [`DROP ${kw} IF EXISTS ${qi(m.db)}.${qi(m.name)}`, code];
+    if (!(await this.app.confirmChanges(m.sid, { action: `Save ${m.type} ${m.name}`, statements: stmts }))) return;
     try {
       await this.app.exec(m.sid, stmts, m.db);
     } catch (e) {

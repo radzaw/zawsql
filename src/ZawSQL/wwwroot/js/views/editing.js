@@ -55,6 +55,12 @@ export class RowEditor {
     const t = this.target();
     if (!t) return false;
     row.$posting = true;
+    const action = `${row.$new ? 'Insert a row into' : 'Update a row in'} ${t.db}.${t.table}`;
+    if (!(await this.app.confirmChanges(t.sid, { action }))) {
+      row.$posting = false;
+      if (!row.$new) this.revert(row);
+      return false;
+    }
     const values = {};
     for (const c of (row.$new ? row.$set : row.$changed) || []) values[this.colName(c)] = row[c];
     const op = row.$new ? { op: 'insert', values } : { op: 'update', original: this.rowObj(row.$orig), values };
@@ -87,6 +93,13 @@ export class RowEditor {
     this.grid.setData(this.grid.columns, this.rows, { keepWidths: true, keepPos: true });
   }
 
+  revert(row) {
+    if (!row.$orig) return;
+    row.$orig.forEach((v, i) => { row[i] = v; });
+    delete row.$orig; delete row.$changed; delete row.$dirty;
+    this.grid.render();
+  }
+
   cancelRow() {
     const r = this.grid.cur.r;
     const row = this.rows[r];
@@ -94,10 +107,7 @@ export class RowEditor {
     if (row.$new) {
       this.rows.splice(r, 1);
       this.onRowsChanged();
-    } else if (row.$orig) {
-      row.$orig.forEach((v, i) => { row[i] = v; });
-      delete row.$orig; delete row.$changed; delete row.$dirty;
-    }
+    } else this.revert(row);
     this.refreshGrid();
   }
 
@@ -120,7 +130,7 @@ export class RowEditor {
     if (!t) return;
     const idx = this.grid.selectedRowIndexes();
     if (!idx.length) return;
-    if (!(await confirmDlg(`Delete ${idx.length} selected row(s) from ${t.table}?`, { ok: 'Delete', danger: true, kind: 'warning' }))) return;
+    if (!(await confirmDlg(this.app.prodWarn(t.sid) + `Delete ${idx.length} selected row(s) from ${t.table}?`, { ok: 'Delete', danger: true, kind: 'warning' }))) return;
     const ops = idx.map(i => this.rows[i]).filter(r => !r.$new).map(r => ({ op: 'delete', original: this.rowObj(r.$orig || r) }));
     try {
       if (ops.length) await post(`/s/${t.sid}/rows`, { db: t.db, table: t.table, ops });

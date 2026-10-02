@@ -5,6 +5,7 @@ import { icon } from './icons.js';
 import { Tree } from './tree.js';
 import { LogPanel } from './log.js';
 import { KEYWORDS, FUNCTIONS } from './editor.js';
+import { isReadOnlyStatement, lacksWhere } from './sqlcheck.js';
 import { contextMenu, closeMenus, menuIsOpen, alertError, confirmDlg, promptDlg, modal } from './dialogs.js';
 import { HostView } from './views/host.js';
 import { DatabaseView } from './views/database.js';
@@ -15,7 +16,7 @@ import { userManager } from './views/users.js';
 import { sessionManager, exportDumpDialog, runSqlFile, createDatabaseDialog, preferencesDialog, aboutDialog } from './views/tools.js';
 
 const TYPE_LABEL = { table: 'Table', view: 'View', procedure: 'Procedure', function: 'Function', trigger: 'Trigger', event: 'Event' };
-const DEFAULT_PREFS = { rowsPerPage: 1000, maxResultRows: 10000, theme: 'system', editorFontSize: 13 };
+const DEFAULT_PREFS = { rowsPerPage: 1000, maxResultRows: 10000, theme: 'system', editorFontSize: 13, confirmNoWhere: true };
 
 // ---------------------------------------------------------------- tabs
 
@@ -108,6 +109,7 @@ class App {
     this.conns = new Map();
     this.colCache = new Map();
     this.hostCache = new Map();
+    this.prodAllowed = new Set(); // production sessions where the user chose not to be asked again
     this.queryViews = [];
     this.queryCounter = 0;
     this.saveStateSoon = debounce(() => this.saveState(), 800);
@@ -204,7 +206,8 @@ class App {
     this.sbVer = h('div', { class: 'sb-cell' });
     this.sbSel = h('div', { class: 'sb-cell' });
     this.sbRo = h('div', { class: 'sb-cell sb-ro', style: { display: 'none' }, title: 'This session is in read-only mode; changes are blocked.' }, 'READ-ONLY');
-    sb.append(this.sbMsg, this.sbRo, this.sbSel, this.sbConn, this.sbVer);
+    this.sbProd = h('div', { class: 'sb-cell sb-prod', style: { display: 'none' }, title: 'Production server: every change asks for confirmation.' }, 'PRODUCTION');
+    sb.append(this.sbMsg, this.sbProd, this.sbRo, this.sbSel, this.sbConn, this.sbVer);
     setInterval(() => this.updateStatus(), 1000);
   }
 
@@ -220,6 +223,8 @@ class App {
     this.sbVer.textContent = info ? `${info.isMariaDb ? 'MariaDB' : 'MySQL'} ${info.version.replace(/-MariaDB.*$/, '')}` : '';
     this.sbSel.textContent = info ? `${info.user}${this.sel.db ? ' › ' + this.sel.db : ''}` : '';
     this.sbRo.style.display = info?.readOnly ? '' : 'none';
+    this.sbProd.style.display = info?.production ? '' : 'none';
+    this.sbSel.style.boxShadow = info?.color ? `inset 4px 0 0 ${info.color}` : '';
   }
 
   // ---------- menus & toolbar ----------
@@ -368,6 +373,7 @@ class App {
     if (!sid) return;
     try { await post(`/s/${sid}/disconnect`); } catch { /* already gone */ }
     this.conns.delete(sid);
+    this.prodAllowed.delete(sid);
     this.tree.removeSession(sid);
     for (const k of [...this.colCache.keys()]) if (k.startsWith(sid + '|')) this.colCache.delete(k);
     const next = this.tree.roots[0];
@@ -444,6 +450,7 @@ class App {
     t.setDisabled('database', !db);
     t.setDisabled('table', !obj && !creating);
     t.setDisabled('data', !obj || !['table', 'view'].includes(obj.type));
+    this.applySessionLook(info);
     for (const q of this.queryViews) if (this.tabs.active === q.id) q.onShow();
   }
 
@@ -571,6 +578,55 @@ class App {
     return false;
   }
 
+  /** Prefix for existing confirmation messages on production sessions. */
+  prodWarn(sid) {
+    const info = this.conns.get(sid);
+    return info?.production ? `⚠ PRODUCTION SERVER: ${info.name}\n\n` : '';
+  }
+
+  /**
+   * Safety confirmation before changing anything. On production sessions every change asks (unless
+   * the user opted out until reconnect); with `checkWhere`, UPDATE/DELETE without WHERE asks on any session.
+   * `statements` omitted means a change that isn't plain SQL (e.g. a grid edit).
+   * Resolves to true when the change may go ahead.
+   */
+  async confirmChanges(sid, { action, statements, checkWhere = false }) {
+    const info = this.conns.get(sid);
+    if (!info) return true;
+    const list = statements || [];
+    const noWhere = checkWhere && this.prefs.confirmNoWhere ? list.filter(lacksWhere) : [];
+    const prod = info.production && !this.prodAllowed.has(sid);
+    const changing = prod ? (statements ? list.filter(s => !isReadOnlyStatement(s)) : [null]) : [];
+    if (!noWhere.length && !changing.length) return true;
+
+    const shown = (prod ? changing.filter(Boolean) : noWhere).slice(0, 8);
+    const optOut = h('input', { type: 'checkbox' });
+    const body = h('div', { class: 'form confirm-changes' },
+      prod ? h('div', { class: 'prod-banner', style: { borderColor: info.color || '#c42b1c' } },
+        h('b', null, 'PRODUCTION SERVER'), ` – ${info.name} (${info.user} @ ${info.host})`) : null,
+      h('div', null, action + (shown.length ? ':' : '.')),
+      shown.map(s => h('div', { class: 'confirm-stmt' },
+        lacksWhere(s) ? h('span', { class: 'ro-badge' }, 'no WHERE') : null,
+        h('code', null, s.length > 300 ? s.slice(0, 300) + ' …' : s))),
+      (prod ? changing.filter(Boolean).length : noWhere.length) > shown.length ? h('div', { class: 'muted' }, `… and ${(prod ? changing.filter(Boolean).length : noWhere.length) - shown.length} more`) : null,
+      noWhere.length ? h('div', { class: 'warn-text' }, `${noWhere.length} UPDATE/DELETE statement(s) have no WHERE clause and will affect every row of the table.`) : null,
+      prod ? h('label', { class: 'chk' }, optOut, " Don't ask again for this session until I reconnect") : null);
+    const ok = await modal({
+      title: prod ? 'Confirm changes on production' : 'Confirm UPDATE/DELETE without WHERE',
+      width: 620,
+      body,
+      buttons: [{ label: 'Execute', value: true, primary: true, danger: true }, { label: 'Cancel', value: false }],
+    });
+    if (ok && prod && optOut.checked) this.prodAllowed.add(sid);
+    return ok === true;
+  }
+
+  /** Session color under the tab bar, window title. */
+  applySessionLook(info) {
+    document.documentElement.style.setProperty('--session-color', info?.color || 'transparent');
+    document.title = info ? `${info.name}${info.production ? ' [PRODUCTION]' : ''} – ZawSQL` : 'ZawSQL';
+  }
+
   newTable(sid, db) {
     if (!sid || !db || !this.canModify(sid)) return;
     this.views.table.startCreate(sid, db);
@@ -580,7 +636,7 @@ class App {
 
   async dropDatabase(sid, db) {
     if (!this.canModify(sid)) return;
-    if (!(await confirmDlg(`Drop database "${db}" and everything in it?\n\nThis cannot be undone.`, { ok: 'Drop', danger: true, kind: 'warning' }))) return;
+    if (!(await confirmDlg(this.prodWarn(sid) + `Drop database "${db}" and everything in it?\n\nThis cannot be undone.`, { ok: 'Drop', danger: true, kind: 'warning' }))) return;
     try {
       await this.exec(sid, [`DROP DATABASE ${qi(db)}`]);
     } catch (e) {
@@ -595,7 +651,7 @@ class App {
   async dropObjects(sid, db, objs) {
     if (!this.canModify(sid)) return;
     const list = objs.map(o => `${o.type} ${o.name}`).join('\n');
-    if (!(await confirmDlg(`Drop ${objs.length} object(s)?\n\n${list}`, { ok: 'Drop', danger: true, kind: 'warning' }))) return;
+    if (!(await confirmDlg(this.prodWarn(sid) + `Drop ${objs.length} object(s)?\n\n${list}`, { ok: 'Drop', danger: true, kind: 'warning' }))) return;
     try {
       await this.exec(sid, objs.map(o => `DROP ${o.type.toUpperCase()} ${qi(db)}.${qi(o.name)}`), db);
     } catch (e) {
@@ -607,7 +663,7 @@ class App {
 
   async truncateTables(sid, db, names) {
     if (!this.canModify(sid)) return;
-    if (!(await confirmDlg(`Delete ALL rows from ${names.length === 1 ? 'table ' + names[0] : names.length + ' tables'}?\n\n${names.join('\n')}`, { ok: 'Empty', danger: true, kind: 'warning' }))) return;
+    if (!(await confirmDlg(this.prodWarn(sid) + `Delete ALL rows from ${names.length === 1 ? 'table ' + names[0] : names.length + ' tables'}?\n\n${names.join('\n')}`, { ok: 'Empty', danger: true, kind: 'warning' }))) return;
     try {
       await this.exec(sid, names.map(n => `TRUNCATE TABLE ${qi(db)}.${qi(n)}`), db);
     } catch (e) {
@@ -622,6 +678,7 @@ class App {
     if (!this.canModify(sid)) return;
     const nn = await promptDlg('Rename table', `New name for ${name}:`, name);
     if (!nn || nn === name) return;
+    if (!(await this.confirmChanges(sid, { action: `Rename table ${name}`, statements: [`RENAME TABLE ${qi(db)}.${qi(name)} TO ${qi(db)}.${qi(nn)}`] }))) return;
     try {
       await this.exec(sid, [`RENAME TABLE ${qi(db)}.${qi(name)} TO ${qi(db)}.${qi(nn)}`], db);
     } catch (e) {

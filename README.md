@@ -7,6 +7,10 @@ The backend is an ASP.NET Core app that talks to the database (via [MySqlConnect
 ## Features
 
 - **Session manager**: saved connections (TCP/IP or Unix socket), SSL modes, compression, database filter, connection test. Saved passwords are encrypted (AES-GCM) with a per-user key.
+- **Session colors and production mark** (session manager):
+  - **Color:** pick a color per session. The tree shows a colored stripe and tint, a line runs above the tabs, and the status bar shows it.
+  - **"Production server":** adds a PROD badge, a PRODUCTION status-bar marker and `[PRODUCTION]` in the window title. Every change asks for confirmation first: data- or schema-changing statements in query tabs (read-only queries run without asking), grid edits, structure and routine saves, Run SQL file, create database and user-manager changes. The dialog lists the statements and offers "don't ask again until I reconnect".
+  - **Every session:** `UPDATE`/`DELETE` without a `WHERE` clause asks before running. This can be switched off in Preferences.
 - **Read-only mode** (a checkbox per session in the session manager): nothing can be changed through that connection. The tree and status bar show a red READ-ONLY badge, and editing, structure saving, drop/truncate/rename, Run SQL file and kill are disabled. The backend enforces it in two layers:
   1. Only `SELECT`, `WITH`, `SHOW`, `DESCRIBE`, `EXPLAIN`, `USE`, `TABLE`, `VALUES` and `HELP` statements may run. `SET`, `CALL`, DDL, `INTO OUTFILE` and executable `/*! */` comments are refused, as are data changes hidden in `WITH … DELETE` or several statements packed into one.
   2. The connection runs with `SET SESSION TRANSACTION READ ONLY`, so MySQL itself also rejects writes that the first layer can't see, such as a stored function called from a `SELECT` that modifies data.

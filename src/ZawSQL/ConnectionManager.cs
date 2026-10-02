@@ -155,6 +155,8 @@ public sealed class ConnectionManager : IAsyncDisposable
             threadId = s.Main?.ServerThread,
             isMariaDb = version.Contains("MariaDB", StringComparison.OrdinalIgnoreCase),
             readOnly = s.Profile.ReadOnly,
+            color = s.Profile.Color,
+            production = s.Profile.Production,
         };
     }
 

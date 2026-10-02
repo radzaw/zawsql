@@ -134,7 +134,7 @@ export class HostView {
   }
 
   async kill(id) {
-    if (!(await confirmDlg(`Kill process ${id}?`, { ok: 'Kill', danger: true }))) return;
+    if (!(await confirmDlg(this.app.prodWarn(this.app.sel.sid) + `Kill process ${id}?`, { ok: 'Kill', danger: true }))) return;
     try {
       await post(`/s/${this.app.sel.sid}/kill`, { id: Number(id) });
       this.load();

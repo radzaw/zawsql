@@ -350,6 +350,7 @@ export async function userManager(app, sid) {
     if (!m.user.trim() && !(await confirmDlg('Create an anonymous account (empty user name)?'))) return;
     const stmts = genSql(m, password());
     if (!stmts.length) return;
+    if (!(await app.confirmChanges(sid, { action: `Save account ${m.user}@${m.host}`, statements: stmts.map(s => s.replace(PASSWORD, "'***'")) }))) return;
     const r = await post(`/s/${sid}/users/apply`, { statements: stmts, password: password() || null }).catch(e => ({ error: { message: e.message, statement: 0 } }));
     const target = r.executed > 0 || !m.isNew ? [m.user, m.host] : [m.orig?.user, m.orig?.host];
     if (r.error) {
@@ -377,7 +378,7 @@ export async function userManager(app, sid) {
     if (!m || m.isNew || ro) return;
     const info = app.conns.get(sid);
     const self = info && `${m.user}@${m.host}` === info.user;
-    const msg = `Delete account ${m.orig.user}@${m.orig.host}?${self ? '\n\nThis is the account you are connected with!' : ''}`;
+    const msg = app.prodWarn(sid) + `Delete account ${m.orig.user}@${m.orig.host}?${self ? '\n\nThis is the account you are connected with!' : ''}`;
     if (!(await confirmDlg(msg, { ok: 'Delete', danger: true, kind: 'warning' }))) return;
     const r = await post(`/s/${sid}/users/apply`, { statements: [`DROP USER ${acctSql(m.orig.user, m.orig.host)}`], password: null }).catch(e => ({ error: { message: e.message } }));
     if (r.error) return alertError(r.error.message);

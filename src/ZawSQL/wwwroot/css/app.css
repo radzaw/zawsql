@@ -150,6 +150,29 @@ kbd { font-family: var(--mono); font-size: 11px; background: var(--bg); border: 
 }
 .ro-note { color: #c42b1c; font-weight: 600; padding: 0 6px; }
 
+/* session colors & production mark */
+#right { border-top: 3px solid var(--session-color, transparent); }
+.tn.colored { box-shadow: inset 4px 0 0 var(--sc); }
+.tn.colored.session:not(.sel) { background: color-mix(in srgb, var(--sc) 18%, transparent); }
+.prod-badge {
+  flex: none; margin-left: 6px; padding: 0 5px; border-radius: 3px; font-size: 10px; line-height: 13px;
+  border: 1px solid #c42b1c; color: #c42b1c; background: var(--panel); font-weight: 700; text-transform: uppercase;
+}
+.tree:focus .tn.sel .prod-badge { border-color: #fff; }
+.sb-cell.sb-prod { background: #8e1b10; color: #fff; font-weight: 700; letter-spacing: 0.03em; }
+.color-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.swatches { display: flex; gap: 5px; align-items: center; }
+.swatch { width: 20px; height: 20px; padding: 0; border: 1px solid var(--border); border-radius: 3px; cursor: default; }
+.swatch.none { background: linear-gradient(to top right, transparent 44%, #c42b1c 46%, #c42b1c 54%, transparent 56%), var(--panel); }
+.swatch.sel, .color-custom.sel { outline: 2px solid var(--focus); outline-offset: 1px; }
+.color-custom { width: 30px; height: 22px; padding: 0 1px; border: 1px solid var(--border); background: var(--panel); }
+.prod-banner { padding: 6px 8px; border-left: 5px solid; background: var(--dirty); }
+.confirm-stmt {
+  display: flex; gap: 6px; align-items: flex-start; padding: 3px 6px; max-height: 8em; overflow: auto;
+  background: var(--panel); border: 1px solid var(--border-light); font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-word; user-select: text;
+}
+.warn-text { color: var(--err); font-weight: 600; }
+
 /* ---------- inputs & buttons ---------- */
 .inp {
   height: 22px; padding: 1px 4px; background: var(--input); border: 1px solid var(--input-border); border-radius: 0; outline: none; user-select: text;

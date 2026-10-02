@@ -107,6 +107,11 @@ export class QueryView {
       stmts = st ? [st] : [];
     }
     if (!stmts.length) return;
+    if (!(await this.app.confirmChanges(sid, { action: 'Execute SQL', statements: stmts.map(s => s.sql), checkWhere: true }))) {
+      this.msg.className = 'q-msg';
+      this.msg.textContent = 'Execution cancelled – nothing was run.';
+      return;
+    }
 
     this.running = true;
     this.setRunning(true);
