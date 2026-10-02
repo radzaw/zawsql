@@ -5,12 +5,14 @@ import { get, post } from '../api.js';
 import { Grid, sortRows } from '../grid.js';
 import { contextMenu, confirmDlg } from '../dialogs.js';
 import { exportGridDialog } from './tools.js';
+import { MonitorView } from './monitor.js';
 
 const KINDS = [
   ['databases', 'Databases'],
   ['variables', 'Variables'],
   ['status', 'Status'],
   ['processes', 'Processes'],
+  ['monitor', 'Monitor'],
 ];
 
 export class HostView {
@@ -28,8 +30,8 @@ export class HostView {
       h('option', { value: '0' }, 'No auto refresh'), h('option', { value: '1' }, 'Every 1 s'), h('option', { value: '5' }, 'Every 5 s'), h('option', { value: '10' }, 'Every 10 s'));
     this.autoSel.style.display = 'none';
     this.countEl = h('span', { class: 'muted' });
-    const toolbar = h('div', { class: 'viewbar' }, this.subtabs, h('div', { class: 'grow' }), this.countEl, this.autoSel, this.filter,
-      h('button', { class: 'tbtn', title: 'Refresh (F5)', html: icon('refresh'), onclick: () => this.load() }));
+    this.refreshBtn = h('button', { class: 'tbtn', title: 'Refresh (F5)', html: icon('refresh'), onclick: () => this.refresh() });
+    const toolbar = h('div', { class: 'viewbar' }, this.subtabs, h('div', { class: 'grow' }), this.countEl, this.autoSel, this.filter, this.refreshBtn);
     this.grid = new Grid({
       gutter: false,
       emptyText: 'Not connected',
@@ -37,7 +39,9 @@ export class HostView {
       onContextMenu: (e, p) => this.ctx(e, p),
       onActivate: r => this.activate(r),
     });
-    this.el = h('div', { class: 'view host-view' }, toolbar, this.grid.el);
+    this.monitor = new MonitorView(app);
+    this.monitor.el.style.display = 'none';
+    this.el = h('div', { class: 'view host-view' }, toolbar, this.grid.el, this.monitor.el);
   }
 
   onShow() {
@@ -45,6 +49,11 @@ export class HostView {
     if (!sid) {
       this.key = null;
       this.grid.setData([], []);
+      this.monitor.stop();
+      return;
+    }
+    if (this.kind === 'monitor') {
+      this.monitor.start(sid);
       return;
     }
     if (this.key !== sid + ':' + this.kind) this.load();
@@ -54,15 +63,30 @@ export class HostView {
   onHide() {
     clearInterval(this.timer);
     this.timer = null;
+    this.monitor.stop();
   }
 
-  refresh() { return this.load(); }
+  refresh() {
+    if (this.kind === 'monitor') return this.monitor.schedule(0);
+    return this.load();
+  }
 
   switchKind(k) {
     this.kind = k;
     this.sort = null;
     for (const b of this.subtabs.children) b.classList.toggle('active', b.dataset.k === k);
     this.autoSel.style.display = k === 'processes' ? '' : 'none';
+    // The monitor replaces the grid and has its own controls.
+    const mon = k === 'monitor';
+    this.monitor.el.style.display = mon ? '' : 'none';
+    this.grid.el.style.display = mon ? 'none' : '';
+    for (const el of [this.filter, this.countEl]) el.style.display = mon ? 'none' : '';
+    if (mon) {
+      clearInterval(this.timer);
+      if (this.app.sel.sid) this.monitor.start(this.app.sel.sid);
+      return;
+    }
+    this.monitor.stop();
     this.load();
     this.setupAuto();
   }

@@ -137,6 +137,36 @@ test('runs table maintenance from the tree context menu', async () => {
   await expect(dlg).toHaveCount(0);
 });
 
+test('server monitor shows live charts, tooltips and a table view', async () => {
+  await page.locator('.tn.session').first().click();
+  await tab(/^Host/).click();
+  await page.locator('.host-view .subtab', { hasText: 'Monitor' }).click();
+  const mon = page.locator('.mon');
+  await expect(mon.locator('.mon-tile')).toHaveCount(6);
+  await expect(mon.locator('.mon-card')).toHaveCount(5);
+  // Two samples are needed for rates; then every chart draws lines.
+  await expect(mon.locator('.mon-card').first().locator('path.mon-line')).toHaveCount(5, { timeout: 15_000 });
+  await expect(mon.locator('.mon-tile', { hasText: 'Connections' })).toContainText('max');
+
+  const plot = mon.locator('.mon-card').nth(1).locator('svg');
+  const box = await plot.boundingBox();
+  await page.mouse.move(box.x + box.width - 20, box.y + 60);
+  const tip = mon.locator('.mon-card').nth(1).locator('.mon-tip');
+  await expect(tip).toBeVisible();
+  await expect(tip).toContainText('Connected');
+  await plot.focus();
+  await page.keyboard.press('ArrowLeft');
+  await expect(tip).toBeVisible();
+
+  await mon.getByRole('button', { name: 'Table view' }).click();
+  await expect(mon.locator('.mon-table-wrap tbody tr')).toHaveCount(16);
+  await mon.getByRole('button', { name: 'Chart view' }).click();
+  await mon.getByRole('button', { name: 'Pause' }).click();
+  await expect(mon.getByRole('button', { name: 'Resume' })).toBeVisible();
+  await mon.getByRole('button', { name: 'Resume' }).click();
+  await page.locator('.host-view .subtab', { hasText: 'Databases' }).click();
+});
+
 test('opens the user manager', async () => {
   await page.locator('.menubar-item', { hasText: 'Tools' }).click();
   await page.locator('.menu-item', { hasText: 'User manager' }).click();

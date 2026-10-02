@@ -22,6 +22,7 @@ The backend is an ASP.NET Core app that talks to the database (via [MySqlConnect
   2. The connection runs with `SET SESSION TRANSACTION READ ONLY`, so MySQL itself also rejects writes that the first layer can't see, such as a stored function called from a `SELECT` that modifies data.
 - **Object tree**: sessions › databases › tables, views, procedures, functions, triggers, events, with sizes. Database/table filter boxes, keyboard navigation, context menus.
 - **Host tab**: databases with sizes, session/global variables, status, process list (auto-refresh, kill).
+- **Server monitor** (Host tab › Monitor): live charts of queries per second by type, connections, network traffic, row operations and problem indicators (slow queries, temp tables on disk, aborted connects), refreshed every 1–10 s over a 1, 5 or 15 minute window. Headline tiles show QPS, connection use against `max_connections`, running threads, buffer pool hit rate and fill, and uptime. Hover or use the arrow keys for exact values. A table view lists current, average and peak of every series, and the active-queries list flags queries slower than `long_query_time` and can kill them (disabled in read-only sessions). The monitor's own polling is subtracted from the numbers and not written to the SQL log. On MariaDB, which has no `Innodb_rows_*` counters, row operations come from the `Handler_*` counters.
 - **Database tab**: all objects with rows, size, dates, engine, collation and comment.
 - **Table tab**: structure editor for columns, indexes, foreign keys and options. It shows live **CREATE / ALTER code** and saves with a single ALTER. Views, routines, triggers and events open in a code editor.
 - **Partition editor** (Table tab › Partitions): RANGE, RANGE COLUMNS, LIST, LIST COLUMNS, (LINEAR) HASH and (LINEAR) KEY, with a partition list (values, comments, row counts and sizes) or a partition count.
@@ -59,6 +60,10 @@ The backend is an ASP.NET Core app that talks to the database (via [MySqlConnect
 
 ![User manager dialog](docs/user-manager.webp)
 
+**Server monitor**: live load charts with a hover tooltip, headline tiles and a table view.
+
+![Server monitor with query, connection, network and row-operation charts](docs/server-monitor.png)
+
 ## Requirements
 
 - To build: [.NET 10 SDK](https://dotnet.microsoft.com/download)
@@ -88,9 +93,9 @@ Output goes to `dist/<runtime>/`, one self-contained file per platform (about 50
 | Suite | What it covers | Command |
 | --- | --- | --- |
 | C# unit tests | read-only guard, `SHOW GRANTS` parser, value formatting and quoting, encrypted session store, HTTP layer (token, static files, sessions, state) | `dotnet test` |
-| C# integration tests | browsing, data formatting, row edits, queries and cancel, dump plus re-import, read-only enforcement, user manager, partitions, table maintenance, session flags, SSH tunnels (password, keys, host key checks) | `dotnet test` with `ZAWSQL_TEST_HOST` set (see below) |
-| UI unit tests | SQL splitter, safety classifier, highlighter, partition SQL, user-manager SQL, grid export | `cd tests/js && npm test` (Node 22+, no dependencies) |
-| End-to-end | real browser: session manager, grid editing, query tab and in-place result editing, WHERE-less DELETE guard, table editor, user manager, dark mode, no JS errors | `cd tests/e2e && npm ci && npx playwright install chromium && npx playwright test` |
+| C# integration tests | browsing, data formatting, row edits, queries and cancel, dump plus re-import, read-only enforcement, user manager, partitions, table maintenance, server monitor sampling, session flags, SSH tunnels (password, keys, host key checks) | `dotnet test` with `ZAWSQL_TEST_HOST` set (see below) |
+| UI unit tests | SQL splitter, safety classifier, highlighter, partition SQL, user-manager SQL, grid export, monitor rates and axis scales | `cd tests/js && npm test` (Node 22+, no dependencies) |
+| End-to-end | real browser: session manager, grid editing, query tab and in-place result editing, WHERE-less DELETE guard, table editor, table maintenance, server monitor (charts, tooltips, table view), user manager, dark mode, SSH tunnel, no JS errors | `cd tests/e2e && npm ci && npx playwright install chromium && npx playwright test` |
 
 Integration and end-to-end tests need a MySQL or MariaDB server, configured with environment variables. The account needs full privileges; tests create and drop their own uniquely named databases and users.
 
@@ -154,6 +159,7 @@ src/ZawSQL/
   TableMeta.cs          columns / indexes / foreign keys / SHOW CREATE
   RowWriter.cs          grid edits -> INSERT / UPDATE / DELETE
   SqlDumper.cs          SQL export
+  ServerMonitor.cs      status/variables/active-queries sample for the live monitor
   SessionStore.cs       saved sessions + UI state (JSON)
   Heartbeat.cs          exits when the last window closes
   BrowserLauncher.cs    finds Chrome/Edge/Chromium and opens an --app window

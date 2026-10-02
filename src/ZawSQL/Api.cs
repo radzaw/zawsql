@@ -304,6 +304,10 @@ public static class Api
             }
         }));
 
+        // ---- live monitor (one sample per call; not logged) ----
+        s.MapGet("/monitor", (string sid, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, _, _) =>
+            await ServerMonitor.SampleAsync(c, ct)));
+
         // ---- table maintenance ----
         s.MapPost("/maintenance", (string sid, MaintenanceRequest req, ConnectionManager cm, CancellationToken ct) => Run(async log =>
         {
