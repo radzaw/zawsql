@@ -168,6 +168,20 @@ class App {
     const dark = p.theme === 'dark' || (p.theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
     document.documentElement.style.setProperty('--ed-font-size', p.editorFontSize + 'px');
+    // The app window's title bar follows theme-color in Chromium app windows.
+    document.querySelector('meta[name=theme-color]')?.setAttribute('content', dark ? '#2b2d30' : '#f0f0f0');
+    try { sessionStorage.setItem('zawsql-theme', p.theme); } catch { /* storage unavailable */ }
+    if (this.themeBtn) {
+      this.themeBtn.innerHTML = icon(dark ? 'sun' : 'moon');
+      this.themeBtn.title = dark ? 'Switch to light mode' : 'Switch to dark mode';
+    }
+  }
+
+  /** Toolbar toggle: flips between explicit light and dark (Tools › Theme also offers "Follow system"). */
+  toggleTheme() {
+    this.prefs.theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+    this.applyPrefs();
+    this.saveStateSoon();
   }
 
   async saveState() {
@@ -324,7 +338,9 @@ class App {
       b('user', 'User manager', () => this.sel.sid && userManager(this, this.sel.sid)),
       h('span', { class: 'sep' }),
       b('settings', 'Preferences', () => preferencesDialog(this)),
+      (this.themeBtn = b('moon', 'Switch to dark mode', () => this.toggleTheme())),
     );
+    this.applyPrefs();
   }
 
   shortcutsDialog() {

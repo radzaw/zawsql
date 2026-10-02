@@ -61,6 +61,11 @@ await app.StartAsync();
 
 var address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.First();
 var url = $"{address}/#token={opts.Token}";
+// Hand the saved theme to the page so it can paint in the right colors before the app has loaded.
+var state = app.Services.GetRequiredService<SessionStore>().LoadState();
+if (state.ValueKind == System.Text.Json.JsonValueKind.Object && state.TryGetProperty("prefs", out var prefs) && prefs.ValueKind == System.Text.Json.JsonValueKind.Object
+    && prefs.TryGetProperty("theme", out var theme) && theme.GetString() is "light" or "dark" or "system")
+    url += $"&theme={theme.GetString()}";
 Console.WriteLine($"ZawSQL is running at {url}");
 Console.WriteLine($"Configuration directory: {opts.ConfigDir}");
 

@@ -1,9 +1,25 @@
 <!doctype html>
-<html lang="en" data-theme="light">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f0f0f0">
 <title>ZawSQL</title>
+<script>
+  // Apply the theme before the first paint so dark mode doesn't flash light while the app loads.
+  // The backend passes the saved preference in the launch URL; reloads reuse the session copy.
+  (function () {
+    var m = location.hash.match(/theme=(light|dark|system)/), t = m && m[1];
+    try {
+      if (t) sessionStorage.setItem('zawsql-theme', t);
+      else t = sessionStorage.getItem('zawsql-theme');
+    } catch (e) { /* storage unavailable */ }
+    if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    document.documentElement.dataset.theme = t;
+    document.querySelector('meta[name=theme-color]').content = t === 'dark' ? '#2b2d30' : '#f0f0f0';
+  })();
+</script>
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="css/app.css">
 <script type="module" src="js/app.js"></script>

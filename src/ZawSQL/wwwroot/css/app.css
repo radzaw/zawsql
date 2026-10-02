@@ -44,6 +44,9 @@
   --t-var: #a05a00;
   --shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
   --scroll-thumb: #c1c1c1;
+  --ic-line: #5f5f5f;
+  --ic-paper: #ffffff;
+  --backdrop: rgba(0, 0, 0, 0.18);
 }
 
 :root[data-theme="dark"] {
@@ -86,6 +89,9 @@
   --t-var: #e0b060;
   --shadow: 0 4px 18px rgba(0, 0, 0, 0.6);
   --scroll-thumb: #4b4e53;
+  --ic-line: #b9bdc4;
+  --ic-paper: #3a3d43;
+  --backdrop: rgba(0, 0, 0, 0.45);
   color-scheme: dark;
 }
 
@@ -106,7 +112,8 @@ input, textarea, select, button { font: inherit; color: inherit; }
 ::-webkit-scrollbar { width: 14px; height: 14px; }
 ::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border: 3px solid transparent; background-clip: padding-box; border-radius: 7px; }
 ::-webkit-scrollbar-corner { background: transparent; }
-.ic { flex: none; vertical-align: middle; }
+.ic { flex: none; vertical-align: middle; color: var(--ic-line); }
+.ic [fill="#fffffe"] { fill: var(--ic-paper); }
 .muted { color: var(--muted); }
 .grow { flex: 1; }
 .pad { padding: 8px; }
@@ -372,7 +379,7 @@ select.cell-inp { padding: 0 2px; }
 .log-line.err, .log-line.err span { color: var(--err); }
 
 /* ---------- modal dialogs ---------- */
-.modal-bg { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.18); }
+.modal-bg { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; background: var(--backdrop); }
 .modal { max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--focus); box-shadow: var(--shadow); }
 .modal-title { display: flex; align-items: center; height: 30px; padding-left: 10px; background: var(--panel); cursor: default; flex: none; }
 .modal-title > span { flex: 1; }

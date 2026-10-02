@@ -31,7 +31,8 @@ The backend is an ASP.NET Core app that talks to the database (via [MySqlConnect
 - **Query tabs**: SQL editor with syntax highlighting, line numbers and autocompletion (tables, columns incl. aliases, keywords, functions). Run all, the selection or the current statement. Supports `DELIMITER` and multiple result sets, has a Stop button and query history. Tabs are restored on the next start.
 - **Editable query results**: when a result's table columns all come from one table and include its primary/unique key, you can edit, insert and delete rows right in the result grid (aliased columns work too; computed columns stay read-only). The header shows "Editable: db.table", or "Read-only" with the reason as a tooltip.
 - **Export / import**: dump a database or selected tables to SQL (structure, data, routines, triggers, events). Export grid rows as CSV, TSV, SQL, JSON, Markdown or HTML. Run large SQL files with a progress dialog.
-- SQL log panel, status bar, light/dark theme.
+- **Dark mode:** a light and a dark theme, plus "Follow system", which switches live when the OS theme changes. Toggle with the sun/moon toolbar button or pick in **Tools › Theme**. The saved theme is applied before the window first paints (no light flash), and the app window's title bar follows it.
+- SQL log panel and status bar.
 
 ## Screenshots
 
