@@ -27,6 +27,23 @@ public sealed class SessionProfile
     public string? Color { get; set; }
     /// <summary>Production server: highlighted everywhere and every change must be confirmed.</summary>
     public bool Production { get; set; }
+
+    // ---- SSH tunnel: when enabled, Host/Port are the database as seen from the SSH server ----
+    public bool SshEnabled { get; set; }
+    public string? SshHost { get; set; }
+    public int SshPort { get; set; } = 22;
+    public string? SshUser { get; set; }
+    /// <summary>"password" or "key".</summary>
+    public string SshAuth { get; set; } = "password";
+    /// <summary>Private key file path (~ allowed) or pasted key text.</summary>
+    public string? SshKeyFile { get; set; }
+    /// <summary>SSH password or key passphrase, only in transit from the UI; stored encrypted in SshSecretEnc.</summary>
+    public string? SshSecret { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SshSecretEnc { get; set; }
+    public bool HasSshSecret { get; set; }
+    /// <summary>Trusted host key fingerprint ("SHA256:…"), set after the user confirmed it.</summary>
+    public string? SshHostKey { get; set; }
     public string? Comment { get; set; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -89,10 +106,38 @@ public sealed class SessionStore
                 : existing?.PasswordEnc;
             stored.Password = null;
             stored.HasPassword = false;
+            stored.SshSecretEnc = !p.SavePassword ? null
+                : !string.IsNullOrEmpty(p.SshSecret) ? Protect(p.SshSecret)
+                : p.SshSecret == "" ? null
+                : existing?.SshSecretEnc;
+            stored.SshSecret = null;
+            stored.HasSshSecret = false;
+            // The trusted host key only changes through SetSshHostKey (trust / forget), never by omission.
+            stored.SshHostKey = p.SshHostKey ?? existing?.SshHostKey;
             if (idx >= 0) sessions[idx] = stored; else sessions.Add(stored);
             sessions.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
             Persist();
             return Sanitize(stored);
+        }
+    }
+
+    public string? GetSshSecret(string id)
+    {
+        lock (gate)
+        {
+            var enc = sessions.FirstOrDefault(s => s.Id == id)?.SshSecretEnc;
+            return enc == null ? null : Unprotect(enc);
+        }
+    }
+
+    /// <summary>Stores the SSH host key fingerprint the user confirmed (null forgets it).</summary>
+    public void SetSshHostKey(string id, string? fingerprint)
+    {
+        lock (gate)
+        {
+            var s = sessions.FirstOrDefault(x => x.Id == id) ?? throw new ApiException("Session not found.");
+            s.SshHostKey = fingerprint;
+            Persist();
         }
     }
 
@@ -134,6 +179,9 @@ public sealed class SessionStore
         c.HasPassword = s.PasswordEnc != null;
         c.PasswordEnc = null;
         c.Password = null;
+        c.HasSshSecret = s.SshSecretEnc != null;
+        c.SshSecretEnc = null;
+        c.SshSecret = null;
         return c;
     }
 

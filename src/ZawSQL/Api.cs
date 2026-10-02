@@ -6,13 +6,17 @@ using MySqlConnector;
 
 namespace ZawSQL;
 
-public sealed record ConnectRequest(string? SessionId, SessionProfile? Profile, string? Password);
+public sealed record ConnectRequest(string? SessionId, SessionProfile? Profile, string? Password, string? SshSecret = null);
+public sealed record HostKeyRequest(string? Fingerprint);
 public sealed record ExecRequest(string[] Statements, string? Database, int MaxRows = 10000, bool StopOnError = true);
 public sealed record RowsRequest(string Db, string Table, List<RowOp> Ops);
 public sealed record KillRequest(long Id);
 
 public static class Api
 {
+    /// <summary>Error code for an SSH host key the user hasn't trusted yet; data carries the fingerprint.</summary>
+    public const int SshHostKeyUnknown = 9001;
+
     const string ReadOnlyMessage = "This session is in read-only mode; changes are not allowed.";
 
     sealed record Response(bool Ok, object? Data, string? Error, int? Code, List<string> Log);
@@ -28,6 +32,11 @@ public static class Api
         {
             log.Add($"/* SQL Error ({ex.Number}): {ex.Message} */");
             return Results.Json(new Response(false, null, ex.Message, ex.Number, log.Items));
+        }
+        catch (SshHostKeyUnknownException ex)
+        {
+            log.Add($"/* {ex.Message} Fingerprint: {ex.Fingerprint} */");
+            return Results.Json(new Response(false, new { host = ex.Host, port = ex.Port, fingerprint = ex.Fingerprint }, ex.Message, SshHostKeyUnknown, log.Items));
         }
         catch (OperationCanceledException)
         {
@@ -50,11 +59,14 @@ public static class Api
             return await body(c, ses, log);
         });
 
-    static (SessionProfile, string) ResolveProfile(ConnectRequest r, SessionStore st)
+    static (SessionProfile, string, string?) ResolveProfile(ConnectRequest r, SessionStore st)
     {
         var p = r.Profile ?? (r.SessionId != null ? st.Get(r.SessionId) : null) ?? throw new ApiException("Session not found.");
         var pwd = r.Password ?? p.Password ?? (p.Id != null ? st.GetPassword(p.Id) : null) ?? "";
-        return (p, pwd);
+        var sshSecret = r.SshSecret ?? (string.IsNullOrEmpty(p.SshSecret) ? null : p.SshSecret) ?? (p.Id != null ? st.GetSshSecret(p.Id) : null);
+        // An unsaved profile (connection test) may not carry the host key the user trusted earlier.
+        if (p.SshHostKey == null && p.Id != null) p.SshHostKey = st.Get(p.Id)?.SshHostKey;
+        return (p, pwd, sshSecret);
     }
 
     public static void Map(WebApplication app)
@@ -80,22 +92,29 @@ public static class Api
         // ---- saved sessions ----
         api.MapGet("/sessions", (SessionStore st) => RunSync(() => st.List()));
         api.MapPost("/sessions", (SessionProfile p, SessionStore st) => RunSync(() => st.Save(p)));
+        api.MapPost("/sessions/{id}/hostkey", (string id, HostKeyRequest r, SessionStore st) => RunSync(() =>
+        {
+            if (r.Fingerprint != null && !r.Fingerprint.StartsWith("SHA256:", StringComparison.Ordinal)) throw new ApiException("Invalid host key fingerprint.");
+            st.SetSshHostKey(id, r.Fingerprint);
+            return null;
+        }));
         api.MapDelete("/sessions/{id}", (string id, SessionStore st) => RunSync(() => { st.Delete(id); return null; }));
 
         api.MapPost("/connect", (ConnectRequest r, SessionStore st, ConnectionManager cm, CancellationToken ct) => Run(async log =>
         {
-            var (p, pwd) = ResolveProfile(r, st);
-            var s = await cm.ConnectAsync(p, pwd, log, ct);
+            var (p, pwd, sshSecret) = ResolveProfile(r, st);
+            var s = await cm.ConnectAsync(p, pwd, sshSecret, log, ct);
             return await cm.InfoAsync(s, log, ct);
         }));
 
         api.MapPost("/test", (ConnectRequest r, SessionStore st, CancellationToken ct) => Run(async log =>
         {
-            var (p, pwd) = ResolveProfile(r, st);
-            await using var c = new MySqlConnection(ConnectionManager.BuildConnectionString(p, pwd, false, 30));
-            log.Add($"/* Testing connection to {p.Host}:{p.Port} as {p.User} */");
+            var (p, pwd, sshSecret) = ResolveProfile(r, st);
+            using var tunnel = p.SshEnabled ? await SshTunnel.OpenAsync(p, sshSecret, log, ct) : null;
+            await using var c = new MySqlConnection(ConnectionManager.BuildConnectionString(p, pwd, false, 30, tunnel?.LocalPort));
+            log.Add($"/* Testing connection to {p.Host}:{p.Port}{(tunnel != null ? " through SSH" : "")} as {p.User} */");
             await c.OpenAsync(ct);
-            return new { version = c.ServerVersion };
+            return new { version = c.ServerVersion, ssh = tunnel != null };
         }));
 
         // ---- per connected session ----

@@ -119,7 +119,9 @@ export class Tree {
       const tw = leaf ? '' : n.loading ? '<span class="spin"></span>' : n.expanded ? '▾' : '▸';
       const ic = n.type === 'session' ? 'server' : n.type === 'db' ? 'database' : n.type;
       const size = n.type === 'db' ? (n.children ? fmtBytes(n.size) : '') : leaf && n.size != null ? fmtBytes(n.size) : '';
-      const title = n.type === 'session' ? `${n.info.user} @ ${n.info.host} – ${n.info.version}` : n.obj?.comment || '';
+      const title = n.type === 'session'
+        ? `${n.info.user} @ ${n.info.host}${n.info.ssh ? ` via SSH (${n.info.ssh})` : ''} – ${n.info.version}`
+        : n.obj?.comment || '';
       const root = n.type === 'session' ? n : n.depth === 1 ? n.parent : n.parent.parent;
       const color = root.info.color; // validated #rrggbb (backend only stores that format)
       let badges = '';

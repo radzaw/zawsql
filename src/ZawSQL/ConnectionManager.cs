@@ -17,6 +17,8 @@ public sealed class DbSession
     public required string MetaConnectionString { get; init; }
     public MySqlConnection? Main { get; set; }
     public MySqlCommand? Running { get; set; }
+    /// <summary>SSH tunnel all connections of this session go through, if enabled.</summary>
+    public SshTunnel? Tunnel { get; init; }
     public SemaphoreSlim Gate { get; } = new(1, 1);
 
     public async Task<IAsyncDisposable> AcquireAsync(CancellationToken ct)
@@ -41,12 +43,13 @@ public sealed class ConnectionManager : IAsyncDisposable
 {
     readonly ConcurrentDictionary<string, DbSession> sessions = new();
 
-    public static string BuildConnectionString(SessionProfile p, string password, bool pooling, int commandTimeout)
+    /// <summary>Builds a connection string; with an SSH tunnel, connections go to its local port instead.</summary>
+    public static string BuildConnectionString(SessionProfile p, string password, bool pooling, int commandTimeout, uint? tunnelPort = null)
     {
         var b = new MySqlConnectionStringBuilder
         {
-            Server = p.Host,
-            Port = (uint)p.Port,
+            Server = tunnelPort != null ? "127.0.0.1" : p.Host,
+            Port = tunnelPort ?? (uint)p.Port,
             UserID = p.User,
             Password = password,
             SslMode = Enum.TryParse<MySqlSslMode>(p.SslMode, true, out var ssl) ? ssl : MySqlSslMode.Preferred,
@@ -63,7 +66,7 @@ public sealed class ConnectionManager : IAsyncDisposable
             ApplicationName = "ZawSQL",
             UseCompression = p.Compression,
         };
-        if (p.Host.StartsWith('/'))
+        if (tunnelPort == null && p.Host.StartsWith('/'))
             b.ConnectionProtocol = MySqlConnectionProtocol.UnixSocket;
         if (pooling)
         {
@@ -74,17 +77,27 @@ public sealed class ConnectionManager : IAsyncDisposable
         return b.ConnectionString;
     }
 
-    public async Task<DbSession> ConnectAsync(SessionProfile p, string password, SqlLog log, CancellationToken ct)
+    public async Task<DbSession> ConnectAsync(SessionProfile p, string password, string? sshSecret, SqlLog log, CancellationToken ct)
     {
+        var tunnel = p.SshEnabled ? await SshTunnel.OpenAsync(p, sshSecret, log, ct) : null;
         var s = new DbSession
         {
             Id = Guid.NewGuid().ToString("n")[..12],
             Profile = p,
-            MainConnectionString = BuildConnectionString(p, password, pooling: false, commandTimeout: 0),
-            MetaConnectionString = BuildConnectionString(p, password, pooling: true, commandTimeout: 120),
+            Tunnel = tunnel,
+            MainConnectionString = BuildConnectionString(p, password, pooling: false, commandTimeout: 0, tunnel?.LocalPort),
+            MetaConnectionString = BuildConnectionString(p, password, pooling: true, commandTimeout: 120, tunnel?.LocalPort),
         };
-        log.Add($"/* Connecting to {p.Host}{(p.Host.StartsWith('/') ? "" : ":" + p.Port)} as {p.User}, using password: {(password.Length > 0 ? "Yes" : "No")} ... */");
-        s.Main = await OpenMainAsync(s, log, ct);
+        log.Add($"/* Connecting to {p.Host}{(p.Host.StartsWith('/') ? "" : ":" + p.Port)}{(tunnel != null ? " through SSH" : "")} as {p.User}, using password: {(password.Length > 0 ? "Yes" : "No")} ... */");
+        try
+        {
+            s.Main = await OpenMainAsync(s, log, ct);
+        }
+        catch
+        {
+            tunnel?.Dispose();
+            throw;
+        }
         log.Add($"/* Connected. Thread-ID: {s.Main.ServerThread}{(p.ReadOnly ? ", read-only mode" : "")} */");
         sessions[s.Id] = s;
         return s;
@@ -115,6 +128,7 @@ public sealed class ConnectionManager : IAsyncDisposable
 
     public async Task<MySqlConnection> OpenMetaAsync(DbSession s, CancellationToken ct)
     {
+        s.Tunnel?.EnsureConnected(new SqlLog());
         var c = new MySqlConnection(s.MetaConnectionString);
         await c.OpenAsync(ct);
         return c;
@@ -123,6 +137,7 @@ public sealed class ConnectionManager : IAsyncDisposable
     /// <summary>Returns the main connection, transparently reconnecting if the server dropped it.</summary>
     public async Task<MySqlConnection> EnsureMainAsync(DbSession s, SqlLog log, CancellationToken ct)
     {
+        s.Tunnel?.EnsureConnected(log);
         var c = s.Main!;
         if (c.State == ConnectionState.Open && await c.PingAsync(ct)) return c;
         log.Add("/* Connection to server lost, reconnecting ... */");
@@ -157,6 +172,7 @@ public sealed class ConnectionManager : IAsyncDisposable
             readOnly = s.Profile.ReadOnly,
             color = s.Profile.Color,
             production = s.Profile.Production,
+            ssh = s.Profile.SshEnabled ? $"{s.Profile.SshUser}@{s.Profile.SshHost}" : null,
         };
     }
 
@@ -167,6 +183,7 @@ public sealed class ConnectionManager : IAsyncDisposable
         if (s.Main != null) await s.Main.DisposeAsync();
         await using var pooled = new MySqlConnection(s.MetaConnectionString);
         await MySqlConnection.ClearPoolAsync(pooled);
+        s.Tunnel?.Dispose();
     }
 
     public async ValueTask DisposeAsync()

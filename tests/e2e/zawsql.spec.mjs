@@ -1,5 +1,5 @@
 import { test, expect, request as playwrightRequest } from '@playwright/test';
-import { PORT, TOKEN, DB } from './env.mjs';
+import { PORT, TOKEN, DB, SSH } from './env.mjs';
 
 const schema = 'ze_' + Date.now().toString(36);
 const sessionName = 'E2E ' + schema;
@@ -154,6 +154,32 @@ test('toggles dark mode', async () => {
   await expect(html).not.toHaveAttribute('data-theme', before);
   await page.locator('#toolbar .tbtn').last().click();
   await expect(html).toHaveAttribute('data-theme', before);
+});
+
+test('connects through an SSH tunnel after confirming the host key', async () => {
+  test.skip(!SSH.host, 'Set ZAWSQL_TEST_SSH_HOST (see tests/ssh) to run the SSH tunnel test.');
+  await page.locator('#toolbar .tbtn[title="Session manager"]').click();
+  await btn('New').click();
+  await field('Session name:').fill('SSH ' + schema);
+  await field('Hostname / IP:').fill(SSH.dbHost);
+  await field('User:').fill(DB.user);
+  await field('Password:').fill(DB.password);
+  await field('Port:').fill(String(SSH.dbPort));
+  await page.locator('.sm-form label.chk', { hasText: 'SSH tunnel' }).locator('input').check();
+  await field('SSH host:').fill(SSH.host);
+  await field('SSH port:').fill(String(SSH.port));
+  await field('SSH user:').fill(SSH.user);
+  await field('SSH password:').fill(SSH.password);
+  await btn('Save').click();
+  await btn('Open').click();
+
+  const keyDlg = page.locator('.modal', { hasText: 'Unknown SSH host key' });
+  await expect(keyDlg).toBeVisible();
+  await expect(keyDlg).toContainText('SHA256:');
+  await keyDlg.getByRole('button', { name: 'Trust and connect', exact: true }).click();
+  await expect(page.locator('.modal')).toHaveCount(0);
+  await expect(page.locator('.tn.session', { hasText: 'SSH ' + schema })).toBeVisible();
+  await expect(page.locator('#log')).toContainText('SSH tunnel ready');
 });
 
 test('produced no JavaScript errors', () => {

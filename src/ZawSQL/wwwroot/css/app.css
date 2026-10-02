@@ -416,6 +416,8 @@ select.cell-inp { padding: 0 2px; }
 .sm-list:focus .sm-item.sel { background: var(--focus); color: var(--focus-text); }
 .sm-right { flex: 1; overflow: auto; padding: 12px; }
 .sm-form .frow { grid-template-columns: 130px 1fr; }
+.sm-hostkey-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.sm-hostkey { font-family: var(--mono); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: text; }
 .sm-sep { margin: 4px 0 0; padding-bottom: 2px; border-bottom: 1px solid var(--border-light); color: var(--muted); }
 
 /* table maintenance */

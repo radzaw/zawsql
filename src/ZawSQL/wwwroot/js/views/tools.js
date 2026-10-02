@@ -1,7 +1,7 @@
 // Dialogs: session manager, exports, SQL file import, create database, preferences, about.
 import { h, esc, qi, sqlStr, fmtBytes, fmtNum, saveTextFile, pickFile, isNumericKind } from '../util.js';
 import { icon } from '../icons.js';
-import { get, post, del, urlWithToken } from '../api.js';
+import { get, post, del, urlWithToken, SSH_HOSTKEY_UNKNOWN } from '../api.js';
 import { modal, confirmDlg, alertError } from '../dialogs.js';
 import { splitSql } from '../sqlsplit.js';
 
@@ -13,11 +13,11 @@ const SESSION_COLORS = ['', '#d13438', '#ca5010', '#c19c00', '#107c10', '#0078d4
 export async function sessionManager(app) {
   let sessions = [];
   try { sessions = await get('/sessions'); } catch (e) { return app.showError(e); }
-  let cur = null, dirty = false, pwdDirty = false;
+  let cur = null, dirty = false, pwdDirty = false, sshDirty = false;
 
   const f = {
     name: h('input', { class: 'inp', spellcheck: false }),
-    host: h('input', { class: 'inp', spellcheck: false, placeholder: '127.0.0.1, hostname or /path/to/mysql.sock' }),
+    host: h('input', { class: 'inp', spellcheck: false }),
     user: h('input', { class: 'inp', spellcheck: false }),
     password: h('input', { class: 'inp', type: 'password' }),
     savePassword: h('input', { type: 'checkbox' }),
@@ -28,6 +28,13 @@ export async function sessionManager(app) {
     compression: h('input', { type: 'checkbox' }),
     readOnly: h('input', { type: 'checkbox' }),
     production: h('input', { type: 'checkbox' }),
+    sshEnabled: h('input', { type: 'checkbox' }),
+    sshHost: h('input', { class: 'inp', spellcheck: false, placeholder: 'ssh.example.com' }),
+    sshPort: h('input', { class: 'inp', type: 'number', min: 1, max: 65535 }),
+    sshUser: h('input', { class: 'inp', spellcheck: false }),
+    sshAuth: h('select', { class: 'inp' }, h('option', { value: 'password' }, 'Password'), h('option', { value: 'key' }, 'Private key')),
+    sshKeyFile: h('input', { class: 'inp', spellcheck: false, placeholder: '~/.ssh/id_ed25519 – or paste the key text' }),
+    sshSecret: h('input', { class: 'inp', type: 'password' }),
     comment: h('textarea', { class: 'inp', rows: 3 }),
   };
   // Session color: preset swatches plus a custom picker; '' = no color.
@@ -47,6 +54,41 @@ export async function sessionManager(app) {
   })), custom);
   custom.addEventListener('input', () => setColor(custom.value));
   f.production.addEventListener('change', () => { if (f.production.checked && !colorVal) setColor('#d13438'); });
+
+  // SSH tunnel section: rows shown only when enabled; the stored host key can be forgotten.
+  const hostKeyText = h('code', { class: 'sm-hostkey' });
+  const forgetBtn = h('button', {
+    class: 'tbtn', type: 'button', title: 'Forget the trusted host key; you will be asked to confirm it on the next connection',
+    onclick: async () => {
+      if (!cur) return;
+      if (cur.id) await post(`/sessions/${cur.id}/hostkey`, { fingerprint: null }).catch(e => alertError(e.message));
+      cur.sshHostKey = null;
+      syncSsh();
+    },
+  }, 'Forget');
+  const sshRows = {
+    host: row('SSH host:', f.sshHost),
+    port: row('SSH port:', f.sshPort),
+    user: row('SSH user:', f.sshUser),
+    auth: row('Authentication:', f.sshAuth),
+    key: row('Private key:', f.sshKeyFile),
+    secret: row('SSH password:', f.sshSecret),
+    hostKey: h('div', { class: 'frow' }, h('span', null, 'Host key:'), h('div', { class: 'sm-hostkey-row' }, hostKeyText, forgetBtn)),
+  };
+  function syncSsh() {
+    const on = f.sshEnabled.checked;
+    for (const r of Object.values(sshRows)) r.style.display = on ? '' : 'none';
+    const key = f.sshAuth.value === 'key';
+    sshRows.key.style.display = on && key ? '' : 'none';
+    sshRows.secret.firstChild.textContent = key ? 'Key passphrase:' : 'SSH password:';
+    f.sshSecret.placeholder = cur?.hasSshSecret ? '(saved – type to change)' : key ? 'Only if the key is encrypted' : '';
+    hostKeyText.textContent = cur?.sshHostKey || 'not trusted yet – you will be asked to confirm it';
+    forgetBtn.style.display = cur?.sshHostKey ? '' : 'none';
+    f.host.placeholder = on ? 'As seen from the SSH server, usually 127.0.0.1' : '127.0.0.1, hostname or /path/to/mysql.sock';
+  }
+  f.sshEnabled.addEventListener('change', syncSsh);
+  f.sshAuth.addEventListener('change', syncSsh);
+
   const list = h('div', { class: 'sm-list', tabindex: 0 });
   const form = h('div', { class: 'form2 sm-form' },
     row('Session name:', f.name),
@@ -55,7 +97,7 @@ export async function sessionManager(app) {
     row('Hostname / IP:', f.host),
     row('User:', f.user),
     row('Password:', f.password),
-    row('', h('label', { class: 'chk' }, f.savePassword, ' Save password')),
+    row('', h('label', { class: 'chk' }, f.savePassword, ' Save passwords')),
     row('Port:', f.port),
     row('Databases:', f.databases),
     row('SSL mode:', f.sslMode),
@@ -66,6 +108,10 @@ export async function sessionManager(app) {
     row('', h('label', { class: 'chk', title: 'Highlights the session everywhere and asks for confirmation before any change.' },
       f.production, ' Production server (confirm every change)')),
     row('Color:', swatches),
+    h('div', { class: 'sm-sep' }, 'SSH tunnel'),
+    row('', h('label', { class: 'chk' }, f.sshEnabled, ' Connect through an SSH tunnel')),
+    ...Object.values(sshRows),
+    h('div', { class: 'sm-sep' }, 'Notes'),
     row('Comment:', f.comment));
   const empty = h('div', { class: 'placeholder' }, 'Create a new session with the "New" button.');
   const right = h('div', { class: 'sm-right' });
@@ -78,12 +124,13 @@ export async function sessionManager(app) {
     el.addEventListener(el.type === 'checkbox' || el.tagName === 'SELECT' ? 'change' : 'input', () => {
       dirty = true;
       if (k === 'password') pwdDirty = true;
+      if (k === 'sshSecret') sshDirty = true;
       if (k === 'name' && cur) { cur.name = f.name.value; renderList(); }
     });
   }
 
   function renderList() {
-    list.innerHTML = sessions.map((s, i) => `<div class="sm-item${s === cur ? ' sel' : ''}" data-i="${i}">${s.color ? `<span class="color-dot" style="background:${s.color}"></span>` : '<span class="color-dot"></span>'}${icon('server')}<span>${esc(s.name || '(unnamed)')}</span>${s.production ? '<span class="prod-badge">prod</span>' : ''}${s.readOnly ? '<span class="ro-badge">read-only</span>' : ''}</div>`).join('')
+    list.innerHTML = sessions.map((s, i) => `<div class="sm-item${s === cur ? ' sel' : ''}" data-i="${i}">${s.color ? `<span class="color-dot" style="background:${s.color}"></span>` : '<span class="color-dot"></span>'}${icon('server')}<span>${esc(s.name || '(unnamed)')}</span>${s.sshEnabled ? '<span class="um-tag" title="SSH tunnel">ssh</span>' : ''}${s.production ? '<span class="prod-badge">prod</span>' : ''}${s.readOnly ? '<span class="ro-badge">read-only</span>' : ''}</div>`).join('')
       || '<div class="muted pad">No saved sessions</div>';
   }
 
@@ -91,6 +138,7 @@ export async function sessionManager(app) {
     cur = s;
     dirty = !!s && !s.id;
     pwdDirty = false;
+    sshDirty = false;
     right.replaceChildren(s ? form : empty);
     if (!s) return renderList();
     f.name.value = s.name ?? '';
@@ -107,7 +155,15 @@ export async function sessionManager(app) {
     f.readOnly.checked = !!s.readOnly;
     f.production.checked = !!s.production;
     setColor(s.color || '', false);
+    f.sshEnabled.checked = !!s.sshEnabled;
+    f.sshHost.value = s.sshHost ?? '';
+    f.sshPort.value = s.sshPort ?? 22;
+    f.sshUser.value = s.sshUser ?? '';
+    f.sshAuth.value = s.sshAuth === 'key' ? 'key' : 'password';
+    f.sshKeyFile.value = s.sshKeyFile ?? '';
+    f.sshSecret.value = '';
     f.comment.value = s.comment ?? '';
+    syncSsh();
     renderList();
   }
 
@@ -127,6 +183,14 @@ export async function sessionManager(app) {
       readOnly: f.readOnly.checked,
       production: f.production.checked,
       color: colorVal || null,
+      sshEnabled: f.sshEnabled.checked,
+      sshHost: f.sshHost.value.trim() || null,
+      sshPort: parseInt(f.sshPort.value, 10) || 22,
+      sshUser: f.sshUser.value.trim() || null,
+      sshAuth: f.sshAuth.value,
+      sshKeyFile: f.sshKeyFile.value.trim() || null,
+      sshSecret: sshDirty ? f.sshSecret.value : null,
+      sshHostKey: cur.sshHostKey ?? null,
       comment: f.comment.value || null,
     };
   }
@@ -135,14 +199,18 @@ export async function sessionManager(app) {
     if (!cur) return null;
     if (!dirty) return cur;
     const typed = pwdDirty ? f.password.value : null;
+    const typedSsh = sshDirty ? f.sshSecret.value : null;
     const saved = await post('/sessions', collect());
     saved.$typedPassword = typed;
+    saved.$typedSsh = typedSsh;
     const i = sessions.indexOf(cur);
     sessions[i] = saved;
     sessions.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
     cur = saved;
     dirty = false;
     pwdDirty = false;
+    sshDirty = false;
+    syncSsh();
     renderList();
     return saved;
   }
@@ -176,7 +244,7 @@ export async function sessionManager(app) {
       {
         label: 'New', align: 'left', onClick: async () => {
           await save();
-          const s = { id: null, name: 'Unnamed', host: '127.0.0.1', user: 'root', port: 3306, savePassword: true, sslMode: 'Preferred', connectTimeout: 15 };
+          const s = { id: null, name: 'Unnamed', host: '127.0.0.1', user: 'root', port: 3306, savePassword: true, sslMode: 'Preferred', connectTimeout: 15, sshPort: 22, sshAuth: 'password' };
           sessions.push(s);
           fill(s);
           f.name.select();
@@ -197,26 +265,39 @@ export async function sessionManager(app) {
       {
         label: 'Test', align: 'left', onClick: async () => {
           if (!cur) return false;
-          const p = collect();
-          const r = await post('/test', { profile: p, sessionId: cur.id, password: pwdDirty ? f.password.value : null });
-          await modal({ title: 'Connection test', body: `Connection successful.\nServer version: ${r.version}` });
-          return false;
+          for (;;) {
+            try {
+              const r = await post('/test', { profile: collect(), sessionId: cur.id, password: pwdDirty ? f.password.value : null, sshSecret: sshDirty ? f.sshSecret.value : null });
+              await modal({ title: 'Connection test', body: `Connection successful${r.ssh ? ' (through the SSH tunnel)' : ''}.\nServer version: ${r.version}` });
+              return false;
+            } catch (e) {
+              if (e.code !== SSH_HOSTKEY_UNKNOWN) throw e;
+              if (!(await confirmHostKey(e.data))) return false;
+              cur.sshHostKey = e.data.fingerprint;
+              if (cur.id) await post(`/sessions/${cur.id}/hostkey`, { fingerprint: e.data.fingerprint });
+              else dirty = true;
+              syncSsh();
+            }
+          }
         },
       },
       {
         label: 'Open', primary: true, onClick: async () => {
           if (!cur) return false;
-          const typed = pwdDirty ? f.password.value : cur.$typedPassword ?? null;
+          let pwd = pwdDirty ? f.password.value : cur.$typedPassword ?? null;
+          let ssh = sshDirty ? f.sshSecret.value : cur.$typedSsh ?? null;
           const s = await save();
-          let pwd = typed;
-          if (!s.savePassword && pwd == null) {
-            pwd = await passwordPrompt(s);
-            if (pwd == null) return false;
+          const needPwd = !s.savePassword && pwd == null;
+          const needSsh = !s.savePassword && s.sshEnabled && ssh == null;
+          if (needPwd || needSsh) {
+            const r = await passwordPrompt(s, needPwd, needSsh);
+            if (!r) return false;
+            pwd = r.password ?? pwd;
+            ssh = r.sshSecret ?? ssh;
           }
           app.state.lastSession = s.id;
           app.saveStateSoon();
-          await app.connect(s.id, pwd);
-          return true;
+          return (await app.connect(s.id, pwd, ssh)) !== false;
         },
       },
       { label: 'Cancel', value: null },
@@ -224,13 +305,25 @@ export async function sessionManager(app) {
   });
 }
 
-async function passwordPrompt(s) {
-  const input = h('input', { class: 'inp wide', type: 'password' });
+/** Asks the user to trust an SSH server's host key on first contact. */
+export async function confirmHostKey({ host, port, fingerprint }) {
+  return confirmDlg(
+    `The authenticity of SSH host ${host}:${port} can't be established.\n\nKey fingerprint:\n${fingerprint}\n\n` +
+    'Compare it with the fingerprint shown by the server administrator (e.g. ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub). ' +
+    'Only continue if they match; ZawSQL will remember this key and refuse to connect if it ever changes.',
+    { title: 'Unknown SSH host key', ok: 'Trust and connect', kind: 'warning' });
+}
+
+async function passwordPrompt(s, askPassword = true, askSsh = false) {
+  const pwd = h('input', { class: 'inp wide', type: 'password' });
+  const ssh = h('input', { class: 'inp wide', type: 'password' });
   return modal({
     title: 'Password',
-    width: 380,
-    body: h('div', { class: 'form' }, h('label', null, `Password for ${s.user}@${s.host}:`), input),
-    buttons: [{ label: 'OK', primary: true, onClick: () => input.value }, { label: 'Cancel', value: null }],
+    width: 400,
+    body: h('div', { class: 'form' },
+      askPassword ? h('label', null, `Password for ${s.user}@${s.host}:`) : null, askPassword ? pwd : null,
+      askSsh ? h('label', null, s.sshAuth === 'key' ? `Passphrase for the SSH key (empty if none):` : `SSH password for ${s.sshUser}@${s.sshHost}:`) : null, askSsh ? ssh : null),
+    buttons: [{ label: 'OK', primary: true, onClick: () => ({ password: askPassword ? pwd.value : null, sshSecret: askSsh ? ssh.value : null }) }, { label: 'Cancel', value: null }],
   });
 }
 

@@ -9,6 +9,10 @@ The backend is an ASP.NET Core app that talks to the database (via [MySqlConnect
 ## Features
 
 - **Session manager**: saved connections (TCP/IP or Unix socket), SSL modes, compression, database filter, connection test. Saved passwords are encrypted (AES-GCM) with a per-user key.
+- **SSH tunnels** (session manager › SSH tunnel): connect through an SSH server, authenticating with a password or a private key (file path or pasted key, optionally with a passphrase). The MySQL host and port are then entered as seen from the SSH server.
+  - On first contact ZawSQL shows the server's host key fingerprint and asks you to trust it. If the key ever changes, the connection is refused with a man-in-the-middle warning.
+  - SSH passwords and passphrases are encrypted like database passwords and never logged.
+  - A dropped tunnel is re-established automatically on the same local port.
 - **Session colors and production mark** (session manager):
   - **Color:** pick a color per session. The tree shows a colored stripe and tint, a line runs above the tabs, and the status bar shows it.
   - **"Production server":** adds a PROD badge, a PRODUCTION status-bar marker and `[PRODUCTION]` in the window title. Every change asks for confirmation first: data- or schema-changing statements in query tabs (read-only queries run without asking), grid edits, structure and routine saves, Run SQL file, create database and user-manager changes. The dialog lists the statements and offers "don't ask again until I reconnect".
@@ -84,7 +88,7 @@ Output goes to `dist/<runtime>/`, one self-contained file per platform (about 50
 | Suite | What it covers | Command |
 | --- | --- | --- |
 | C# unit tests | read-only guard, `SHOW GRANTS` parser, value formatting and quoting, encrypted session store, HTTP layer (token, static files, sessions, state) | `dotnet test` |
-| C# integration tests | browsing, data formatting, row edits, queries and cancel, dump plus re-import, read-only enforcement, user manager, partitions, table maintenance, session flags | `dotnet test` with `ZAWSQL_TEST_HOST` set (see below) |
+| C# integration tests | browsing, data formatting, row edits, queries and cancel, dump plus re-import, read-only enforcement, user manager, partitions, table maintenance, session flags, SSH tunnels (password, keys, host key checks) | `dotnet test` with `ZAWSQL_TEST_HOST` set (see below) |
 | UI unit tests | SQL splitter, safety classifier, highlighter, partition SQL, user-manager SQL, grid export | `cd tests/js && npm test` (Node 22+, no dependencies) |
 | End-to-end | real browser: session manager, grid editing, query tab and in-place result editing, WHERE-less DELETE guard, table editor, user manager, dark mode, no JS errors | `cd tests/e2e && npm ci && npx playwright install chromium && npx playwright test` |
 
@@ -96,7 +100,7 @@ export ZAWSQL_TEST_HOST=127.0.0.1 ZAWSQL_TEST_PORT=3306 ZAWSQL_TEST_USER=root ZA
 dotnet test
 ```
 
-Without `ZAWSQL_TEST_HOST`, the integration tests are skipped.
+Without `ZAWSQL_TEST_HOST`, the integration tests are skipped. The SSH tunnel tests also need the throwaway SSH server from `tests/ssh` (see its README) and `ZAWSQL_TEST_SSH_*` variables.
 
 **CI** (`.github/workflows/ci.yml`) runs on every push and pull request:
 - build and unit tests on Windows, Linux and macOS
@@ -164,4 +168,4 @@ Each connected session has one **main connection**. Query tabs and grid edits ru
 
 ## Not (yet) implemented
 
-SSH tunnels, CSV import, subpartition editing.
+CSV import, subpartition editing, SSH agent / jump-host chains.

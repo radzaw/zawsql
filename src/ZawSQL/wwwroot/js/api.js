@@ -18,8 +18,11 @@ let logSink = () => {};
 export function setLogSink(fn) { logSink = fn; }
 
 export class ApiError extends Error {
-  constructor(message, code) { super(message); this.code = code; }
+  constructor(message, code, data) { super(message); this.code = code; this.data = data; }
 }
+
+/** Error code: the SSH server's host key isn't trusted yet (data: host, port, fingerprint). */
+export const SSH_HOSTKEY_UNKNOWN = 9001;
 
 function qs(q) {
   if (!q) return '';
@@ -46,7 +49,7 @@ export async function api(method, path, body, { signal, quiet } = {}) {
   let j;
   try { j = await res.json(); } catch { throw new ApiError(`Unexpected response from the backend (HTTP ${res.status}).`); }
   if (j.log?.length && !quiet) logSink(j.log);
-  if (!j.ok) throw new ApiError(j.error || 'Unknown error', j.code);
+  if (!j.ok) throw new ApiError(j.error || 'Unknown error', j.code, j.data);
   return j.data;
 }
 

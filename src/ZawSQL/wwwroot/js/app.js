@@ -1,5 +1,5 @@
 // ZawSQL main module: layout, menus, toolbar, tabs and the glue between tree and views.
-import { get, post, put, setLogSink, startHeartbeat, ApiError } from './api.js';
+import { get, post, put, setLogSink, startHeartbeat, ApiError, SSH_HOSTKEY_UNKNOWN } from './api.js';
 import { h, qi, debounce, makeSplitter, fmtElapsed } from './util.js';
 import { icon } from './icons.js';
 import { Tree } from './tree.js';
@@ -14,7 +14,7 @@ import { DataView } from './views/data.js';
 import { QueryView } from './views/query.js';
 import { userManager } from './views/users.js';
 import { maintenanceDialog } from './views/maintenance.js';
-import { sessionManager, exportDumpDialog, runSqlFile, createDatabaseDialog, preferencesDialog, aboutDialog } from './views/tools.js';
+import { sessionManager, confirmHostKey, exportDumpDialog, runSqlFile, createDatabaseDialog, preferencesDialog, aboutDialog } from './views/tools.js';
 
 const TYPE_LABEL = { table: 'Table', view: 'View', procedure: 'Procedure', function: 'Function', trigger: 'Trigger', event: 'Event' };
 const DEFAULT_PREFS = { rowsPerPage: 1000, maxResultRows: 10000, theme: 'system', editorFontSize: 13, confirmNoWhere: true };
@@ -375,9 +375,23 @@ class App {
 
   // ---------- connections ----------
 
-  async connect(profileId, password) {
+  /** Connects a saved session. Resolves to false when the user declined an unknown SSH host key. */
+  async connect(profileId, password, sshSecret) {
     this.setStatus('Connecting…');
-    const info = await post('/connect', { sessionId: profileId, password });
+    let info;
+    for (;;) {
+      try {
+        info = await post('/connect', { sessionId: profileId, password, sshSecret });
+        break;
+      } catch (e) {
+        if (e.code !== SSH_HOSTKEY_UNKNOWN) throw e;
+        if (!(await confirmHostKey(e.data))) {
+          this.setStatus('Connection cancelled.');
+          return false;
+        }
+        await post(`/sessions/${profileId}/hostkey`, { fingerprint: e.data.fingerprint });
+      }
+    }
     info.connectedAt = Date.now();
     this.conns.set(info.sid, info);
     const node = this.tree.addSession(info);

@@ -92,12 +92,21 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+      - name: Start SSH test server
+        run: |
+          docker build -t zawsql-test-sshd tests/ssh
+          docker run -d --name sshd --add-host=host.docker.internal:host-gateway -p 2222:22 zawsql-test-sshd
       - name: Integration tests
         env:
           ZAWSQL_TEST_HOST: 127.0.0.1
           ZAWSQL_TEST_PORT: 3306
           ZAWSQL_TEST_USER: root
           ZAWSQL_TEST_PASSWORD: ${{ env.DB_PASSWORD }}
+          ZAWSQL_TEST_SSH_HOST: 127.0.0.1
+          ZAWSQL_TEST_SSH_PORT: 2222
+          # The database as seen from inside the SSH container: the service port on the runner host.
+          ZAWSQL_TEST_SSH_DB_HOST: host.docker.internal
+          ZAWSQL_TEST_SSH_DB_PORT: 3306
         run: >-
           dotnet test tests/ZawSQL.Tests -c Release
           --filter "FullyQualifiedName~ZawSQL.Tests.Integration"
@@ -129,6 +138,10 @@ jobs:
       ZAWSQL_TEST_PORT: 3306
       ZAWSQL_TEST_USER: root
       ZAWSQL_TEST_PASSWORD: ci-root-password
+      ZAWSQL_TEST_SSH_HOST: 127.0.0.1
+      ZAWSQL_TEST_SSH_PORT: 2222
+      ZAWSQL_TEST_SSH_DB_HOST: host.docker.internal
+      ZAWSQL_TEST_SSH_DB_PORT: 3306
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -141,6 +154,10 @@ jobs:
           cache-dependency-path: tests/e2e/package-lock.json
       - name: Build app
         run: dotnet build src/ZawSQL -c Release
+      - name: Start SSH test server
+        run: |
+          docker build -t zawsql-test-sshd tests/ssh
+          docker run -d --name sshd --add-host=host.docker.internal:host-gateway -p 2222:22 zawsql-test-sshd
       - name: Install Playwright
         working-directory: tests/e2e
         run: |

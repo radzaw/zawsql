@@ -40,6 +40,28 @@ public sealed class SessionStoreTests : IDisposable
         Assert.Null(store.GetPassword(s.Id!));
     }
 
+    [Fact]
+    public void Ssh_secret_is_encrypted_and_host_key_only_changes_explicitly()
+    {
+        var store = new SessionStore(Opts);
+        var s = store.Save(new SessionProfile { Name = "Tunnel", SshEnabled = true, SshHost = "bastion", SshUser = "me", SshSecret = "ssh-pw!", SavePassword = true });
+        Assert.True(s.HasSshSecret);
+        Assert.Null(s.SshSecret);
+        Assert.Equal("ssh-pw!", store.GetSshSecret(s.Id!));
+        Assert.DoesNotContain("ssh-pw!", File.ReadAllText(Path.Combine(dir, "sessions.json")));
+
+        store.SetSshHostKey(s.Id!, "SHA256:abc");
+        // Saving the form again (secret not retyped, host key not sent) keeps both.
+        store.Save(new SessionProfile { Id = s.Id, Name = "Tunnel 2", SshEnabled = true, SshHost = "bastion", SshUser = "me", SavePassword = true });
+        Assert.Equal("ssh-pw!", store.GetSshSecret(s.Id!));
+        Assert.Equal("SHA256:abc", store.Get(s.Id!)!.SshHostKey);
+
+        store.SetSshHostKey(s.Id!, null); // "Forget"
+        Assert.Null(store.Get(s.Id!)!.SshHostKey);
+        store.Save(new SessionProfile { Id = s.Id, Name = "Tunnel", SshSecret = "", SavePassword = true }); // cleared explicitly
+        Assert.Null(store.GetSshSecret(s.Id!));
+    }
+
     [Theory]
     [InlineData("#d13438", "#d13438")]
     [InlineData("red", null)]
