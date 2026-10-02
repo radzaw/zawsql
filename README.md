@@ -14,6 +14,9 @@ The backend is an ASP.NET Core app that talks to the database (via [MySqlConnect
 - **Host tab**: databases with sizes, session/global variables, status, process list (auto-refresh, kill).
 - **Database tab**: all objects with rows, size, dates, engine, collation and comment.
 - **Table tab**: structure editor for columns, indexes, foreign keys and options. It shows live **CREATE / ALTER code** and saves with a single ALTER. Views, routines, triggers and events open in a code editor.
+- **Partition editor** (Table tab › Partitions): RANGE, RANGE COLUMNS, LIST, LIST COLUMNS, (LINEAR) HASH and (LINEAR) KEY, with a partition list (values, comments, row counts and sizes) or a partition count.
+  - Appending RANGE/LIST partitions uses `ADD PARTITION`. Every other change redefines the partitioning, so MySQL refuses changes that would leave rows without a partition instead of silently deleting them.
+  - Tables with subpartitions are shown but read-only in the editor.
 - **Data tab**: virtualized grid with paging, sorting, WHERE filter, quick search and quick filters. You can edit in place (enum dropdowns, multi-line editor), insert, delete and set NULL. It works on tables without a primary key too.
 - **Query tabs**: SQL editor with syntax highlighting, line numbers and autocompletion (tables, columns incl. aliases, keywords, functions). Run all, the selection or the current statement. Supports `DELIMITER` and multiple result sets, has a Stop button and query history. Tabs are restored on the next start.
 - **Editable query results**: when a result's table columns all come from one table and include its primary/unique key, you can edit, insert and delete rows right in the result grid (aliased columns work too; computed columns stay read-only). The header shows "Editable: db.table", or "Read-only" with the reason as a tooltip.
@@ -101,4 +104,4 @@ Each connected session has one **main connection**. Query tabs and grid edits ru
 
 ## Not (yet) implemented
 
-SSH tunnels, user manager, table maintenance tools, CSV import, partition editor.
+SSH tunnels, user manager, table maintenance tools, CSV import, subpartition editing.

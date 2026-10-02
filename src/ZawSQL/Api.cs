@@ -135,6 +135,7 @@ public static class Api
         {
             var m = await TableMeta.LoadAsync(c, log, db, table, ct);
             List<ForeignKeyMeta> fks = m.IsView ? [] : await TableMeta.LoadForeignKeysAsync(c, log, db, table, ct);
+            var partitions = m.IsView ? null : await TableMeta.LoadPartitionsAsync(c, log, db, table, ct);
             var create = await TableMeta.ShowCreateAsync(c, log, db, m.IsView ? "VIEW" : "TABLE", table, ct);
             var options = (await Db.RowsAsync(c, log,
                 "SELECT ENGINE AS engine, TABLE_COLLATION AS collation, TABLE_COMMENT AS comment, AUTO_INCREMENT AS autoIncrement, ROW_FORMAT AS rowFormat FROM information_schema.TABLES WHERE TABLE_SCHEMA = @p0 AND TABLE_NAME = @p1",
@@ -142,7 +143,7 @@ public static class Api
             // information_schema caches AUTO_INCREMENT on MySQL 8; SHOW CREATE TABLE is always current.
             var ai = create != null ? Regex.Match(create, @"\bAUTO_INCREMENT=(\d+)") : Match.Empty;
             options["autoIncrement"] = ai.Success ? ai.Groups[1].Value : m.IsView ? null : options.GetValueOrDefault("autoIncrement");
-            return new { columns = m.Columns, indexes = m.Indexes, foreignKeys = fks, create, options, isView = m.IsView, keyColumns = m.KeyColumns };
+            return new { columns = m.Columns, indexes = m.Indexes, foreignKeys = fks, partitions, create, options, isView = m.IsView, keyColumns = m.KeyColumns };
         }));
 
         s.MapGet("/columns", (string sid, string db, string table, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, _, _) =>

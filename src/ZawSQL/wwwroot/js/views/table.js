@@ -1,10 +1,11 @@
 // "Table" tab: structure editor for tables (columns, indexes, foreign keys, options) generating
 // CREATE / ALTER statements, and a code editor for views, routines, triggers and events.
-import { h, qi, sqlStr, splitTopLevel } from '../util.js';
+import { h, qi, sqlStr, splitTopLevel, makeSplitter } from '../util.js';
 import { icon } from '../icons.js';
 import { get } from '../api.js';
 import { SqlEditor } from '../editor.js';
 import { confirmDlg } from '../dialogs.js';
+import { buildPartModel, partitionClause, partitionAlter, renderPartitions, partitionCount } from './partitions.js';
 
 const TYPES = ['int', 'int unsigned', 'bigint', 'bigint unsigned', 'tinyint', 'smallint', 'mediumint', 'decimal(10,2)', 'float', 'double', 'bit(1)',
   'varchar(255)', 'char(36)', 'tinytext', 'text', 'mediumtext', 'longtext', 'json', "enum('a','b')", "set('a','b')",
@@ -176,6 +177,7 @@ export class TableView {
       m.idx = [{ id: nextId(), name: 'PRIMARY', type: 'PRIMARY', cols: 'id', orig: null }];
       m.fks = [];
       m.create = '';
+      m.part = buildPartModel(null);
       return m;
     }
     m.cols = info.columns.map(c => {
@@ -197,6 +199,7 @@ export class TableView {
     });
     m.origFks = m.fks.map(f => f.orig);
     m.create = info.create || '';
+    m.part = buildPartModel(info.partitions);
     return m;
   }
 
@@ -211,6 +214,8 @@ export class TableView {
     if (m.opts.engine) s += `\nENGINE=${m.opts.engine}`;
     if (m.opts.autoIncrement) s += `\nAUTO_INCREMENT=${parseInt(m.opts.autoIncrement, 10) || 1}`;
     if (m.opts.rowFormat) s += `\nROW_FORMAT=${m.opts.rowFormat}`;
+    const pc = partitionClause(m.part);
+    if (pc) s += '\n' + pc;
     return s;
   }
 
@@ -261,6 +266,8 @@ export class TableView {
     if (o.name !== oo.name) parts.push(`RENAME TO ${qi(m.db)}.${qi(o.name)}`);
 
     if (parts.length) stmts.push(`ALTER TABLE ${tbl}\n\t${parts.join(',\n\t')}`);
+    // Partitioning goes last, on its own, addressing the table by its (possibly new) name.
+    stmts.push(...partitionAlter(m.part, `${qi(m.db)}.${qi(o.name)}`));
     return stmts;
   }
 
@@ -277,6 +284,14 @@ export class TableView {
     this.subtabsEl = h('div', { class: 'subtabs' });
     this.paneEl = h('div', { class: 'tv-pane' });
     const top = h('div', { class: 'tv-top' }, this.subtabsEl, this.paneEl);
+    top.style.height = (this.app.state.layout?.tableTopHeight || 230) + 'px';
+    const split = h('div', { class: 'splitter-h' });
+    makeSplitter(split, {
+      axis: 'y',
+      get: () => top.offsetHeight,
+      set: v => { top.style.height = Math.max(110, Math.min(v, this.el.clientHeight - 120)) + 'px'; },
+      onEnd: () => { this.app.state.layout = { ...this.app.state.layout, tableTopHeight: top.offsetHeight }; this.app.saveStateSoon(); },
+    });
 
     const colBar = h('div', { class: 'viewbar small' }, h('b', null, 'Columns:'),
       h('button', { class: 'tbtn', html: icon('plus') + '<span>Add</span>', title: 'Add column', onclick: () => this.addColumn() }),
@@ -284,7 +299,7 @@ export class TableView {
       h('button', { class: 'tbtn', html: icon('up') + '<span>Up</span>', title: 'Move up', onclick: () => this.moveColumn(-1) }),
       h('button', { class: 'tbtn', html: icon('down') + '<span>Down</span>', title: 'Move down', onclick: () => this.moveColumn(1) }));
     this.colsEl = h('div', { class: 'tv-cols' });
-    this.el.replaceChildren(bar, top, colBar, this.colsEl);
+    this.el.replaceChildren(bar, top, split, colBar, this.colsEl);
     this.selCol = 0;
     this.renderSubtabs();
     this.renderPane();
@@ -294,7 +309,7 @@ export class TableView {
 
   renderSubtabs() {
     const m = this.m;
-    const tabs = [['basic', 'Basic'], ['options', 'Options'], ['indexes', `Indexes (${m.idx.length})`], ['fks', `Foreign keys (${m.fks.length})`], ['create', 'CREATE code']];
+    const tabs = [['basic', 'Basic'], ['options', 'Options'], ['indexes', `Indexes (${m.idx.length})`], ['fks', `Foreign keys (${m.fks.length})`], ['partitions', `Partitions (${partitionCount(m.part)})`], ['create', 'CREATE code']];
     if (!m.creating) tabs.push(['alter', 'ALTER code']);
     this.subtabsEl.replaceChildren(...tabs.map(([k, label]) =>
       h('button', { class: 'subtab' + (k === this.subtab ? ' active' : ''), onclick: () => { this.subtab = k; this.renderSubtabs(); this.renderPane(); } }, label)));
@@ -341,6 +356,7 @@ export class TableView {
       }
       case 'indexes': content = this.renderIndexes(); break;
       case 'fks': content = this.renderFks(); break;
+      case 'partitions': content = renderPartitions(this, m.part); break;
       case 'create': {
         const ed = new SqlEditor({ value: m.creating ? this.genCreate() + ';' : m.create + ';', readOnly: true });
         this.codeEd = ed;

@@ -40,6 +40,26 @@ public sealed class ForeignKeyMeta
     public string? OnDelete { get; set; }
 }
 
+public sealed class PartitionMeta
+{
+    public string Name { get; set; } = "";
+    /// <summary>VALUES LESS THAN / VALUES IN content as reported by information_schema (null for HASH/KEY).</summary>
+    public string? Description { get; set; }
+    public string? Comment { get; set; }
+    public long? Rows { get; set; }
+    public long? Size { get; set; }
+    public int Subpartitions { get; set; }
+}
+
+public sealed class PartitioningMeta
+{
+    public string Method { get; set; } = "";
+    public string Expression { get; set; } = "";
+    public string? SubMethod { get; set; }
+    public string? SubExpression { get; set; }
+    public List<PartitionMeta> Partitions { get; set; } = [];
+}
+
 public sealed class TableMetaInfo
 {
     public List<ColumnMeta> Columns { get; set; } = [];
@@ -143,6 +163,42 @@ public static class TableMeta
             fk.RefColumns.Add(r["refCol"] ?? "");
         }
         return list;
+    }
+
+    /// <summary>Partitioning of a table, or null when it isn't partitioned.</summary>
+    public static async Task<PartitioningMeta?> LoadPartitionsAsync(MySqlConnection c, SqlLog? log, string db, string table, CancellationToken ct)
+    {
+        var rows = await Db.RowsAsync(c, log, """
+            SELECT PARTITION_NAME AS name, SUBPARTITION_NAME AS sub, PARTITION_METHOD AS method, SUBPARTITION_METHOD AS subMethod,
+                   PARTITION_EXPRESSION AS expr, SUBPARTITION_EXPRESSION AS subExpr, PARTITION_DESCRIPTION AS descr,
+                   TABLE_ROWS AS `rows`, DATA_LENGTH + INDEX_LENGTH AS size, PARTITION_COMMENT AS comment
+            FROM information_schema.PARTITIONS
+            WHERE TABLE_SCHEMA = @p0 AND TABLE_NAME = @p1 AND PARTITION_NAME IS NOT NULL
+            ORDER BY PARTITION_ORDINAL_POSITION, SUBPARTITION_ORDINAL_POSITION
+            """, ct, db, table);
+        if (rows.Count == 0) return null;
+        var first = rows[0];
+        var meta = new PartitioningMeta
+        {
+            Method = first["method"] ?? "",
+            Expression = first["expr"] ?? "",
+            SubMethod = first["subMethod"],
+            SubExpression = first["subExpr"],
+        };
+        foreach (var r in rows)
+        {
+            var name = r["name"] ?? "";
+            var p = meta.Partitions.LastOrDefault();
+            if (p == null || p.Name != name)
+            {
+                p = new PartitionMeta { Name = name, Description = r["descr"], Comment = r["comment"] };
+                meta.Partitions.Add(p);
+            }
+            if (long.TryParse(r["rows"], out var n)) p.Rows = (p.Rows ?? 0) + n;
+            if (long.TryParse(r["size"], out var s)) p.Size = (p.Size ?? 0) + s;
+            if (r["sub"] != null) p.Subpartitions++;
+        }
+        return meta;
     }
 
     static readonly HashSet<string> ObjectTypes = ["TABLE", "VIEW", "PROCEDURE", "FUNCTION", "TRIGGER", "EVENT"];
