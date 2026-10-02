@@ -3,6 +3,16 @@ import assert from 'node:assert/strict';
 import { buildPartModel, partitionClause, partitionAlter, partChanged, partitionCount } from '../../src/ZawSQL/wwwroot/js/views/partitions.js';
 import { _test as users } from '../../src/ZawSQL/wwwroot/js/views/users.js';
 import { exportRows, rowsToSql } from '../../src/ZawSQL/wwwroot/js/views/tools.js';
+import { maintenanceSql } from '../../src/ZawSQL/wwwroot/js/views/maintenance.js';
+
+test('maintenance preview matches the statement the backend builds', () => {
+  assert.equal(maintenanceSql('check', 'shop', ['a', 'b'], []), 'CHECK TABLE `shop`.`a`, `shop`.`b`');
+  assert.equal(maintenanceSql('optimize', 'shop', ['a'], ['LOCAL']), 'OPTIMIZE LOCAL TABLE `shop`.`a`');
+  assert.equal(maintenanceSql('repair', 'shop', ['a'], ['LOCAL', 'QUICK']), 'REPAIR LOCAL TABLE `shop`.`a` QUICK');
+  assert.equal(maintenanceSql('checksum', 'shop', ['a'], ['EXTENDED']), 'CHECKSUM TABLE `shop`.`a` EXTENDED');
+  assert.equal(maintenanceSql('check', 'shop', ['a', 'b', 'c', 'd'], []), 'CHECK TABLE `shop`.`a`, `shop`.`b`, `shop`.`c`, … (4 tables)');
+  assert.equal(maintenanceSql('analyze', 'shop', [], []), 'ANALYZE TABLE …');
+});
 
 // ---------------------------------------------------------------- partitions
 

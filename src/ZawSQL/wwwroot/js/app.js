@@ -13,6 +13,7 @@ import { TableView } from './views/table.js';
 import { DataView } from './views/data.js';
 import { QueryView } from './views/query.js';
 import { userManager } from './views/users.js';
+import { maintenanceDialog } from './views/maintenance.js';
 import { sessionManager, exportDumpDialog, runSqlFile, createDatabaseDialog, preferencesDialog, aboutDialog } from './views/tools.js';
 
 const TYPE_LABEL = { table: 'Table', view: 'View', procedure: 'Procedure', function: 'Function', trigger: 'Trigger', event: 'Event' };
@@ -279,6 +280,7 @@ class App {
         { label: 'Create table…', icon: 'plus', disabled: !s.db || ro, onClick: () => this.newTable(s.sid, s.db) },
         '-',
         { label: 'User manager…', icon: 'user', disabled: !s.sid, onClick: () => userManager(this, s.sid) },
+        { label: 'Table maintenance…', icon: 'maintenance', disabled: !s.db, onClick: () => maintenanceDialog(this, s.sid, s.db, s.obj?.type === 'table' ? [s.obj.name] : null) },
         '-',
         { label: 'Export database as SQL…', icon: 'export', disabled: !s.db, onClick: () => exportDumpDialog(this, s.sid, s.db) },
         { label: 'Run SQL file…', icon: 'import', disabled: !s.sid || ro, onClick: () => runSqlFile(this) },
@@ -728,6 +730,7 @@ class App {
       (o.type === 'table' || o.type === 'view') && { label: 'Generate SELECT in new query tab', icon: 'query', onClick: () => this.openQueryTab(`SELECT * FROM ${qi(db)}.${qi(o.name)} LIMIT 1000;`, o.name) },
       '-',
       exportable.length && { label: 'Export as SQL…', icon: 'export', onClick: () => exportDumpDialog(this, sid, db, exportable) },
+      tables.length && { label: 'Maintenance…', icon: 'maintenance', onClick: () => maintenanceDialog(this, sid, db, tables) },
       o.type === 'table' && objs.length === 1 && { label: 'Rename…', disabled: ro, onClick: () => this.renameTable(sid, db, o.name) },
       tables.length && { label: tables.length > 1 ? `Empty ${tables.length} tables…` : 'Empty table (TRUNCATE)…', icon: 'empty', disabled: ro, onClick: () => this.truncateTables(sid, db, tables) },
       { label: objs.length > 1 ? `Drop ${objs.length} objects…` : `Drop ${o.type}…`, icon: 'trash', disabled: ro, onClick: () => this.dropObjects(sid, db, objs) },
@@ -757,6 +760,7 @@ class App {
         { label: 'New query tab', icon: 'newtab', onClick: () => this.openQueryTab() },
         '-',
         { label: 'Export database as SQL…', icon: 'export', onClick: () => exportDumpDialog(this, node.sid, node.db) },
+        { label: 'Table maintenance…', icon: 'maintenance', onClick: () => maintenanceDialog(this, node.sid, node.db) },
         { label: 'Run SQL file…', icon: 'import', disabled: this.isReadOnly(node.sid), onClick: () => runSqlFile(this) },
         '-',
         { label: 'Drop database…', icon: 'trash', disabled: this.isReadOnly(node.sid), onClick: () => this.dropDatabase(node.sid, node.db) },

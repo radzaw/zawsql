@@ -119,6 +119,24 @@ test('table editor generates ALTER code', async () => {
   await expect(tab(/^Table/)).not.toHaveClass(/modified/);
 });
 
+test('runs table maintenance from the tree context menu', async () => {
+  await treeNode('customers').click({ button: 'right' });
+  await page.locator('.ctx-root .menu-item', { hasText: 'Maintenance' }).click();
+  const dlg = page.locator('.modal.maintenance');
+  await expect(dlg).toBeVisible();
+  await expect(dlg.locator('.mt-item input:checked')).toHaveCount(1); // only the clicked table
+  await dlg.locator('.mt-op', { hasText: 'Checksum' }).locator('input').check();
+  await expect(dlg.locator('.mt-preview')).toHaveText(`CHECKSUM TABLE \`${schema}\`.\`customers\``);
+  await dlg.locator('.mt-op', { hasText: 'Check' }).first().locator('input').check();
+  await dlg.locator('.mt-tables').getByRole('button', { name: 'All', exact: true }).click();
+  await dlg.getByRole('button', { name: 'Execute', exact: true }).click();
+  await expect(dlg.locator('.mt-status')).toContainText('2 of 2 table(s)');
+  await expect(dlg.locator('.grid .gr')).toHaveCount(2);
+  await expect(dlg.locator('.grid')).toContainText('OK');
+  await btn('Close').click();
+  await expect(dlg).toHaveCount(0);
+});
+
 test('opens the user manager', async () => {
   await page.locator('.menubar-item', { hasText: 'Tools' }).click();
   await page.locator('.menu-item', { hasText: 'User manager' }).click();

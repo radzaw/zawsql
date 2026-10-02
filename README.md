@@ -27,6 +27,9 @@ The backend is an ASP.NET Core app that talks to the database (via [MySqlConnect
   - Changes become minimal `GRANT`/`REVOKE`/`ALTER USER` statements, shown in an SQL preview before saving.
   - Passwords never reach the SQL log or query history.
   - Read-only sessions can view accounts but not change them.
+- **Table maintenance** (Tools menu, or right-click a database, a table or a selection in the Database tab): run Check, Analyze, Checksum, Optimize or Repair, with their options (QUICK, EXTENDED, LOCAL, …), on any set of tables.
+  - Tables run one at a time, with progress and a Stop button. The server's messages appear in a grid you can copy or export.
+  - Read-only sessions allow only Check and Checksum; production sessions ask before the others.
 - **Data tab**: virtualized grid with paging, sorting, WHERE filter, quick search and quick filters. You can edit in place (enum dropdowns, multi-line editor), insert, delete and set NULL. It works on tables without a primary key too.
 - **Query tabs**: SQL editor with syntax highlighting, line numbers and autocompletion (tables, columns incl. aliases, keywords, functions). Run all, the selection or the current statement. Supports `DELIMITER` and multiple result sets, has a Stop button and query history. Tabs are restored on the next start.
 - **Editable query results**: when a result's table columns all come from one table and include its primary/unique key, you can edit, insert and delete rows right in the result grid (aliased columns work too; computed columns stay read-only). The header shows "Editable: db.table", or "Read-only" with the reason as a tooltip.
@@ -81,7 +84,7 @@ Output goes to `dist/<runtime>/`, one self-contained file per platform (about 50
 | Suite | What it covers | Command |
 | --- | --- | --- |
 | C# unit tests | read-only guard, `SHOW GRANTS` parser, value formatting and quoting, encrypted session store, HTTP layer (token, static files, sessions, state) | `dotnet test` |
-| C# integration tests | browsing, data formatting, row edits, queries and cancel, dump plus re-import, read-only enforcement, user manager, partitions, session flags | `dotnet test` with `ZAWSQL_TEST_HOST` set (see below) |
+| C# integration tests | browsing, data formatting, row edits, queries and cancel, dump plus re-import, read-only enforcement, user manager, partitions, table maintenance, session flags | `dotnet test` with `ZAWSQL_TEST_HOST` set (see below) |
 | UI unit tests | SQL splitter, safety classifier, highlighter, partition SQL, user-manager SQL, grid export | `cd tests/js && npm test` (Node 22+, no dependencies) |
 | End-to-end | real browser: session manager, grid editing, query tab and in-place result editing, WHERE-less DELETE guard, table editor, user manager, dark mode, no JS errors | `cd tests/e2e && npm ci && npx playwright install chromium && npx playwright test` |
 
@@ -161,4 +164,4 @@ Each connected session has one **main connection**. Query tabs and grid edits ru
 
 ## Not (yet) implemented
 
-SSH tunnels, table maintenance tools, CSV import, subpartition editing.
+SSH tunnels, CSV import, subpartition editing.

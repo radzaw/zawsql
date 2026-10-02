@@ -285,6 +285,20 @@ public static class Api
             }
         }));
 
+        // ---- table maintenance ----
+        s.MapPost("/maintenance", (string sid, MaintenanceRequest req, ConnectionManager cm, CancellationToken ct) => Run(async log =>
+        {
+            var ses = cm.Get(sid);
+            var sql = Maintenance.BuildSql(req);
+            if (ses.Profile.ReadOnly && !Maintenance.IsReadOnly(req.Op))
+                throw new ApiException("Only CHECK and CHECKSUM are available in read-only mode.");
+            await using var c = await cm.OpenMetaAsync(ses, ct);
+            await using var cmd = Db.Cmd(c, log, sql, []);
+            cmd.CommandTimeout = 0; // OPTIMIZE / REPAIR can take a long time on big tables
+            await using var r = await cmd.ExecuteReaderAsync(ct);
+            return await Values.ReadAsync(r, int.MaxValue, ct);
+        }));
+
         // ---- user manager ----
         s.MapGet("/users", (string sid, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, _, log) =>
             await UserAdmin.ListAsync(c, log, ct)));
