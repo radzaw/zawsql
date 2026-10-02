@@ -1,0 +1,12 @@
+{
+  "name": "zawsql-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Browser end-to-end tests for ZawSQL (Playwright).",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}

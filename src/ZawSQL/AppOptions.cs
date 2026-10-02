@@ -10,7 +10,7 @@ public sealed class AppOptions
     public bool ShowHelp { get; private set; }
     public string? Browser { get; private set; }
     public string ConfigDir { get; private set; } = DefaultConfigDir();
-    public string Token { get; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(20)).ToLowerInvariant();
+    public string Token { get; private set; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(20)).ToLowerInvariant();
 
     public const string HelpText = """
         ZawSQL - MySQL / MariaDB client
@@ -21,6 +21,8 @@ public sealed class AppOptions
           --keep-alive      Keep running after the last window is closed
           --browser <path>  Chromium-based browser used for the app window (Chrome, Edge, Chromium, Brave)
           --config <dir>    Configuration directory (saved sessions, UI state)
+          --token <value>   Use a fixed API token instead of a random one (for automation and tests;
+                            letters, digits, '-' and '_', at least 16 characters)
           -h, --help        Show this help
         """;
 
@@ -37,6 +39,11 @@ public sealed class AppOptions
                 case "--keep-alive": o.KeepAlive = true; break;
                 case "--browser": o.Browser = Next(); break;
                 case "--config": o.ConfigDir = Path.GetFullPath(Next()); break;
+                case "--token":
+                    o.Token = Next();
+                    if (o.Token.Length < 16 || !o.Token.All(ch => char.IsAsciiLetterOrDigit(ch) || ch is '-' or '_'))
+                        throw new ArgumentException("--token must be at least 16 characters of letters, digits, '-' or '_'.");
+                    break;
                 case "-h" or "--help" or "/?": o.ShowHelp = true; break;
             }
         }

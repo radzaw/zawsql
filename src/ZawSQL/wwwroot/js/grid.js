@@ -42,7 +42,6 @@ export class Grid {
       this.scheduleRender();
     });
     this.body.addEventListener('mousedown', e => this.onMouseDown(e));
-    this.body.addEventListener('dblclick', e => this.onDblClick(e));
     this.body.addEventListener('contextmenu', e => this.onCtx(e));
     this.body.addEventListener('keydown', e => this.onKeyDown(e));
     this.header.addEventListener('mousedown', e => this.onHeaderDown(e));
@@ -257,7 +256,18 @@ export class Grid {
       return;
     }
     if (e.button !== 0) return;
+    // Double clicks are detected here rather than with the dblclick event: rendering on mousedown
+    // replaces the row elements, so the browser can't pair the two clicks into a dblclick.
+    const now = Date.now();
+    const last = this.lastDown;
+    const isDouble = !e.shiftKey && last && now - last.t < 500 && last.r === p.r && last.c === p.c;
+    this.lastDown = isDouble ? null : { t: now, r: p.r, c: p.c };
     this.setCur(p.r, p.c, e.shiftKey);
+    if (isDouble) {
+      e.preventDefault();
+      this.activate(p);
+      return;
+    }
     const move = ev => {
       const q = this.hit(ev);
       if (q && q.r >= 0 && q.c >= 0 && (q.r !== this.cur.r || q.c !== this.cur.c)) {
@@ -271,9 +281,8 @@ export class Grid {
     window.addEventListener('mouseup', up);
   }
 
-  onDblClick(e) {
-    const p = this.hit(e);
-    if (!p || p.r < 0) return;
+  /** Double click: edit the cell, or let the owner act on the row (e.g. open the object). */
+  activate(p) {
     if (this.o.editable && !this.columns[p.c]?.readOnly) this.startEdit();
     else this.o.onActivate?.(p.r, p.c);
   }

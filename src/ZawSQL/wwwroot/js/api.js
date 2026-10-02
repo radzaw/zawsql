@@ -2,7 +2,7 @@
 const TOKEN_KEY = 'zawsql-token';
 
 function readToken() {
-  const m = location.hash.match(/token=([0-9a-f]+)/i);
+  const m = location.hash.match(/token=([A-Za-z0-9_-]+)/);
   if (m) {
     try { sessionStorage.setItem(TOKEN_KEY, m[1]); } catch { /* storage unavailable */ }
     history.replaceState(null, '', location.pathname + location.search);

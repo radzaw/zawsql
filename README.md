@@ -76,6 +76,33 @@ Output goes to `dist/<runtime>/`, one self-contained file per platform (about 50
 
 > **Windows note:** Smart App Control / application-control policies may block a self-built, unsigned `ZawSQL.exe`. Either sign the executable or run the framework-dependent build with `dotnet ZawSQL.dll` (`./publish.ps1 -FrameworkDependent`).
 
+## Testing
+
+| Suite | What it covers | Command |
+| --- | --- | --- |
+| C# unit tests | read-only guard, `SHOW GRANTS` parser, value formatting and quoting, encrypted session store, HTTP layer (token, static files, sessions, state) | `dotnet test` |
+| C# integration tests | browsing, data formatting, row edits, queries and cancel, dump plus re-import, read-only enforcement, user manager, partitions, session flags | `dotnet test` with `ZAWSQL_TEST_HOST` set (see below) |
+| UI unit tests | SQL splitter, safety classifier, highlighter, partition SQL, user-manager SQL, grid export | `cd tests/js && npm test` (Node 22+, no dependencies) |
+| End-to-end | real browser: session manager, grid editing, query tab and in-place result editing, WHERE-less DELETE guard, table editor, user manager, dark mode, no JS errors | `cd tests/e2e && npm ci && npx playwright install chromium && npx playwright test` |
+
+Integration and end-to-end tests need a MySQL or MariaDB server, configured with environment variables. The account needs full privileges; tests create and drop their own uniquely named databases and users.
+
+```sh
+docker run -d --name zawsql-test -e MYSQL_ROOT_PASSWORD=secret -p 3306:3306 mysql:8.4
+export ZAWSQL_TEST_HOST=127.0.0.1 ZAWSQL_TEST_PORT=3306 ZAWSQL_TEST_USER=root ZAWSQL_TEST_PASSWORD=secret
+dotnet test
+```
+
+Without `ZAWSQL_TEST_HOST`, the integration tests are skipped.
+
+**CI** (`.github/workflows/ci.yml`) runs on every push and pull request:
+- build and unit tests on Windows, Linux and macOS
+- the UI unit tests on Node
+- the integration tests against MySQL 8.0, MySQL 8.4, MariaDB 10.11 and MariaDB 11.4
+- the Playwright tests against MySQL 8.4
+
+When everything passes on a push, it also publishes the standalone builds for all five platforms as downloadable artifacts.
+
 ## Command line
 
 ```
@@ -85,6 +112,7 @@ ZawSQL [options]
   --keep-alive      Keep running after the last window is closed
   --browser <path>  Chromium-based browser used for the app window
   --config <dir>    Configuration directory (saved sessions, UI state)
+  --token <value>   Fixed API token instead of a random one (for automation and tests)
 ```
 
 Configuration is stored in `%APPDATA%\ZawSQL` on Windows and `~/.config/ZawSQL` on Linux and macOS.

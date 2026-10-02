@@ -1,0 +1,179 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DB_PASSWORD: ci-root-password
+
+jobs:
+  build:
+    name: Build & unit tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build
+        run: dotnet build ZawSQL.slnx -c Release
+      - name: Unit tests (integration tests skip without a database)
+        run: dotnet test ZawSQL.slnx -c Release --no-build --logger "trx;LogFileName=unit.trx" --results-directory TestResults
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-tests-${{ matrix.os }}
+          path: TestResults
+
+  js:
+    name: UI unit tests (Node)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run node:test suites
+        working-directory: tests/js
+        run: npm test
+
+  integration:
+    name: Integration (${{ matrix.db.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        db:
+          - name: MySQL 8.0
+            image: mysql:8.0
+            health: mysqladmin ping -h 127.0.0.1 -uroot -pci-root-password
+          - name: MySQL 8.4
+            image: mysql:8.4
+            health: mysqladmin ping -h 127.0.0.1 -uroot -pci-root-password
+          - name: MariaDB 10.11
+            image: mariadb:10.11
+            health: healthcheck.sh --connect --innodb_initialized
+          - name: MariaDB 11.4
+            image: mariadb:11.4
+            health: healthcheck.sh --connect --innodb_initialized
+    services:
+      db:
+        image: ${{ matrix.db.image }}
+        env:
+          # The MariaDB image accepts the MYSQL_* variables as well.
+          MYSQL_ROOT_PASSWORD: ci-root-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="${{ matrix.db.health }}"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Integration tests
+        env:
+          ZAWSQL_TEST_HOST: 127.0.0.1
+          ZAWSQL_TEST_PORT: 3306
+          ZAWSQL_TEST_USER: root
+          ZAWSQL_TEST_PASSWORD: ${{ env.DB_PASSWORD }}
+        run: >-
+          dotnet test tests/ZawSQL.Tests -c Release
+          --filter "FullyQualifiedName~ZawSQL.Tests.Integration"
+          --logger "trx;LogFileName=integration.trx" --results-directory TestResults
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-${{ matrix.db.image }}
+          path: TestResults
+
+  e2e:
+    name: Browser end-to-end (Playwright)
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pci-root-password"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    env:
+      ZAWSQL_TEST_HOST: 127.0.0.1
+      ZAWSQL_TEST_PORT: 3306
+      ZAWSQL_TEST_USER: root
+      ZAWSQL_TEST_PASSWORD: ci-root-password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tests/e2e/package-lock.json
+      - name: Build app
+        run: dotnet build src/ZawSQL -c Release
+      - name: Install Playwright
+        working-directory: tests/e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Run end-to-end tests
+        working-directory: tests/e2e
+        run: npx playwright test
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            tests/e2e/playwright-report
+            tests/e2e/test-results
+
+  package:
+    name: Package (${{ matrix.rid }})
+    needs: [build, js, integration, e2e]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rid: [win-x64, linux-x64, linux-arm64, osx-x64, osx-arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Publish single-file build
+        run: sh ./publish.sh ${{ matrix.rid }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zawsql-${{ matrix.rid }}
+          path: dist/${{ matrix.rid }}

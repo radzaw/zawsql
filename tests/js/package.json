@@ -1,0 +1,12 @@
+{
+  "name": "zawsql-js-tests",
+  "private": true,
+  "type": "module",
+  "description": "Unit tests for the ZawSQL UI modules (Node's built-in test runner, no dependencies).",
+  "scripts": {
+    "test": "node --import ./setup.mjs --test"
+  },
+  "engines": {
+    "node": ">=22.12"
+  }
+}
