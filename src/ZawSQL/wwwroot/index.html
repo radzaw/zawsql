@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ZawSQL</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/app.css">
+<script type="module" src="js/app.js"></script>
+</head>
+<body>
+<div id="menubar"></div>
+<div id="toolbar"></div>
+<div id="main">
+  <div id="left">
+    <div id="tree-filters">
+      <input id="db-filter" class="inp" placeholder="Database filter" spellcheck="false">
+      <input id="tbl-filter" class="inp" placeholder="Table filter" spellcheck="false">
+    </div>
+    <div id="tree-host"></div>
+  </div>
+  <div class="splitter-v" id="split-left"></div>
+  <div id="right">
+    <div id="tabbar"></div>
+    <div id="tabcontent"></div>
+  </div>
+</div>
+<div class="splitter-h" id="split-log"></div>
+<div id="log"></div>
+<div id="statusbar"></div>
+</body>
+</html>
