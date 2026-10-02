@@ -27,6 +27,7 @@ const P = {
   query: '<path d="M3 1.5h7l3 3v10H3z" fill="#fff" stroke="#3a6ab0"/><text x="8" y="12" font-size="5.6" font-family="Segoe UI,Arial" font-weight="700" text-anchor="middle" fill="#3a6ab0">SQL</text>',
   host: '<rect x="1.5" y="2" width="13" height="9" rx="1" fill="#cfe0f5" stroke="#3a6ab0"/><path d="M5 14h6M8 11v3" stroke="#3a6ab0" stroke-width="1.4"/>',
   disconnect: '<path d="M6 10 2.5 13.5M10 6l3.5-3.5" stroke="#666" stroke-width="1.6"/><path d="M4.5 7.5 8.5 11.5l-1 1a2.8 2.8 0 0 1-4-4z" fill="#e04b3b" stroke="#a52a1d"/><path d="M11.5 8.5 7.5 4.5l1-1a2.8 2.8 0 0 1 4 4z" fill="#e04b3b" stroke="#a52a1d"/>',
+  user: '<circle cx="8" cy="5" r="3" fill="#f2c29b" stroke="#a0673a"/><path d="M2.5 14.5c0-3 2.5-5 5.5-5s5.5 2 5.5 5z" fill="#4a7fc1" stroke="#244f86" stroke-linejoin="round"/>',
   sessions: '<rect x="1.5" y="1.5" width="10" height="4" rx="1" fill="#7aa0d4" stroke="#2f5590"/><rect x="4.5" y="6.5" width="10" height="4" rx="1" fill="#7aa0d4" stroke="#2f5590"/><path d="M3 12.5h6" stroke="#2fa84f" stroke-width="2"/><path d="M6 9.5v6" stroke="#2fa84f" stroke-width="2" transform="translate(0 -1)"/>',
   up: '<path d="M8 3 3 9h3.5v4h3V9H13z" fill="#4a7fc1" stroke="#244f86" stroke-linejoin="round"/>',
   down: '<path d="M8 13 3 7h3.5V3h3v4H13z" fill="#4a7fc1" stroke="#244f86" stroke-linejoin="round"/>',

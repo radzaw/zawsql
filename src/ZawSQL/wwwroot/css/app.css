@@ -388,6 +388,29 @@ select.cell-inp { padding: 0 2px; }
 .sm-form .frow { grid-template-columns: 130px 1fr; }
 .sm-sep { margin: 4px 0 0; padding-bottom: 2px; border-bottom: 1px solid var(--border-light); color: var(--muted); }
 
+/* user manager */
+.user-manager .modal-body { padding: 0; }
+.um { display: flex; height: 560px; }
+.um-left { width: 250px; flex: none; display: flex; flex-direction: column; gap: 4px; padding: 6px; border-right: 1px solid var(--border-light); }
+.um-list { flex: 1; overflow: auto; background: var(--panel); border: 1px solid var(--border-light); outline: none; }
+.um-item, .um-obj { display: flex; align-items: center; gap: 4px; height: 22px; padding: 0 6px; white-space: nowrap; overflow: hidden; cursor: default; }
+.um-item:hover, .um-obj:hover { background: var(--hover); }
+.um-item.sel, .um-obj.sel { background: var(--sel); }
+.um-name { overflow: hidden; text-overflow: ellipsis; }
+.um-obj > span:nth-of-type(1) { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.um-tag { margin-left: auto; padding: 0 4px; font-size: 10px; border-radius: 3px; background: var(--border-light); color: var(--muted); }
+.um-left-btns { display: flex; gap: 2px; flex-wrap: wrap; }
+.um-right { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.um-right > .subtabs { padding: 4px 6px 0; }
+.um-pane { flex: 1; overflow: auto; padding: 10px; }
+.um-privs { display: flex; gap: 10px; height: 100%; }
+.um-objs-wrap { width: 260px; flex: none; display: flex; flex-direction: column; gap: 4px; }
+.um-objs { flex: 1; overflow: auto; background: var(--panel); border: 1px solid var(--border-light); }
+.um-checks { flex: 1; min-width: 0; overflow: auto; }
+.um-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 3px 10px; padding: 6px 2px; }
+.um-priv { white-space: nowrap; }
+.um-sql { margin: 0; min-height: 100%; }
+
 /* ---------- menus ---------- */
 .menu { position: absolute; z-index: 3000; min-width: 190px; padding: 2px; background: var(--panel); border: 1px solid var(--border); box-shadow: 2px 3px 8px rgba(0, 0, 0, 0.2); }
 .ctx-root { position: fixed; }

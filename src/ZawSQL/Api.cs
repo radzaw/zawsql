@@ -285,6 +285,19 @@ public static class Api
             }
         }));
 
+        // ---- user manager ----
+        s.MapGet("/users", (string sid, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, _, log) =>
+            await UserAdmin.ListAsync(c, log, ct)));
+
+        s.MapGet("/user", (string sid, string user, string host, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, _, log) =>
+            await UserAdmin.LoadAsync(c, log, user, host, ct)));
+
+        s.MapPost("/users/apply", (string sid, ApplyUserRequest req, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, ses, log) =>
+        {
+            if (ses.Profile.ReadOnly) throw new ApiException(ReadOnlyMessage);
+            return await UserAdmin.ApplyAsync(c, log, req, ct);
+        }));
+
         s.MapPost("/kill", (string sid, KillRequest req, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, ses, log) =>
         {
             if (ses.Profile.ReadOnly) throw new ApiException(ReadOnlyMessage);

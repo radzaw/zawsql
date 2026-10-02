@@ -17,6 +17,10 @@ The backend is an ASP.NET Core app that talks to the database (via [MySqlConnect
 - **Partition editor** (Table tab › Partitions): RANGE, RANGE COLUMNS, LIST, LIST COLUMNS, (LINEAR) HASH and (LINEAR) KEY, with a partition list (values, comments, row counts and sizes) or a partition count.
   - Appending RANGE/LIST partitions uses `ADD PARTITION`. Every other change redefines the partitioning, so MySQL refuses changes that would leave rows without a partition instead of silently deleting them.
   - Tables with subpartitions are shown but read-only in the editor.
+- **User manager** (Tools menu, toolbar, or right-click a session): list, add, clone, rename and delete accounts. Set passwords, account lock and resource limits. Edit privileges on the global, database, table, column and routine level (including MySQL 8 dynamic privileges and `WITH GRANT OPTION`) and granted roles.
+  - Changes become minimal `GRANT`/`REVOKE`/`ALTER USER` statements, shown in an SQL preview before saving.
+  - Passwords never reach the SQL log or query history.
+  - Read-only sessions can view accounts but not change them.
 - **Data tab**: virtualized grid with paging, sorting, WHERE filter, quick search and quick filters. You can edit in place (enum dropdowns, multi-line editor), insert, delete and set NULL. It works on tables without a primary key too.
 - **Query tabs**: SQL editor with syntax highlighting, line numbers and autocompletion (tables, columns incl. aliases, keywords, functions). Run all, the selection or the current statement. Supports `DELIMITER` and multiple result sets, has a Stop button and query history. Tabs are restored on the next start.
 - **Editable query results**: when a result's table columns all come from one table and include its primary/unique key, you can edit, insert and delete rows right in the result grid (aliased columns work too; computed columns stay read-only). The header shows "Editable: db.table", or "Read-only" with the reason as a tooltip.
@@ -104,4 +108,4 @@ Each connected session has one **main connection**. Query tabs and grid edits ru
 
 ## Not (yet) implemented
 
-SSH tunnels, user manager, table maintenance tools, CSV import, subpartition editing.
+SSH tunnels, table maintenance tools, CSV import, subpartition editing.
