@@ -14,6 +14,8 @@ import { DataView } from './views/data.js';
 import { QueryView } from './views/query.js';
 import { userManager } from './views/users.js';
 import { maintenanceDialog } from './views/maintenance.js';
+import { LibraryStore, editSnippetDialog } from './views/library.js';
+import { snippetVars } from './library.js';
 import { sessionManager, confirmHostKey, exportDumpDialog, runSqlFile, createDatabaseDialog, preferencesDialog, aboutDialog } from './views/tools.js';
 
 const TYPE_LABEL = { table: 'Table', view: 'View', procedure: 'Procedure', function: 'Function', trigger: 'Trigger', event: 'Event' };
@@ -132,6 +134,9 @@ class App {
 
     this.log = new LogPanel(document.getElementById('log'));
     setLogSink(lines => this.log.add(lines));
+    this.library = new LibraryStore();
+    await this.library.load();
+    if (this.library.loadError) this.log.error(`Saved queries and snippets could not be loaded: ${this.library.loadError.message}`);
     this.buildMenu();
     this.buildToolbar();
     this.buildLayout();
@@ -150,7 +155,7 @@ class App {
     this.tabs.add({ id: 'table', title: 'Table', iconName: 'table', view: this.views.table });
     this.tabs.add({ id: 'data', title: 'Data', iconName: 'columns', view: this.views.data });
     const saved = this.state.queryTabs?.length ? this.state.queryTabs : [{ title: 'Query', sql: '' }];
-    for (const q of saved) this.openQueryTab(q.sql, q.title, { activate: false });
+    for (const q of saved) this.openQueryTab(q.sql, q.title, { activate: false, savedId: q.savedId });
     this.updateTabs();
     this.tabs.activate('host');
 
@@ -187,7 +192,7 @@ class App {
 
   async saveState() {
     if (!this.state) return;
-    this.state.queryTabs = this.queryViews.map(v => ({ title: v.title, sql: v.sql }));
+    this.state.queryTabs = this.queryViews.map(v => ({ title: v.title, sql: v.sql, savedId: v.savedId || undefined }));
     try { await put('/state', this.state, { quiet: true }); } catch { /* backend gone */ }
   }
 
@@ -274,6 +279,11 @@ class App {
         { label: 'Stop', icon: 'stop', disabled: !s.sid, onClick: () => this.activeQuery()?.stop() },
         '-',
         { label: 'Query history…', icon: 'history', onClick: () => this.queryForRun()?.showHistory() },
+        '-',
+        { label: 'Save to library…', icon: 'bookmark', shortcut: 'Ctrl+S', onClick: () => this.queryForRun()?.saveToLibrary() },
+        { label: 'Save to library as new…', shortcut: 'Ctrl+Shift+S', onClick: () => this.queryForRun()?.saveToLibrary({ asNew: true }) },
+        { label: 'New snippet…', icon: 'snippet', onClick: () => editSnippetDialog(this, { body: this.activeQuery()?.editor.selection().text ?? '' }) },
+        { label: 'Saved queries and snippets', icon: 'library', checked: !!this.state.layout?.libraryOpen, onClick: () => { this.queryForRun(); this.toggleLibrary(); } },
       ]],
       ['Tools', () => [
         { label: 'Create database…', icon: 'database', disabled: !s.sid || ro, onClick: () => createDatabaseDialog(this, s.sid) },
@@ -349,7 +359,8 @@ class App {
     const rows = [
       ['F5', 'Refresh tree / current tab'], ['F9', 'Execute all SQL in the query tab'], ['Ctrl+F9', 'Execute selection'],
       ['Ctrl+Shift+F9 / Ctrl+Enter', 'Execute statement at the caret'], ['Ctrl+Space', 'Autocomplete'], ['Ctrl+/', 'Toggle line comment'],
-      ['Tab / Shift+Tab', 'Indent / outdent'], ['Ctrl+T', 'New query tab'], ['F2 / Enter / typing', 'Edit grid cell'],
+      ['Tab / Shift+Tab', 'Indent / outdent'], ['Tab after a trigger', 'Expand snippet (then Tab: next field)'],
+      ['Ctrl+S', 'Save query to library'], ['Ctrl+Shift+S', 'Save query to library as new'], ['Ctrl+T', 'New query tab'], ['F2 / Enter / typing', 'Edit grid cell'],
       ['Ctrl+Enter', 'Apply multi-line cell edit'], ['Insert', 'Insert row'], ['Ctrl+Delete', 'Delete selected rows'],
       ['Ctrl+Shift+N', 'Set cell to NULL'], ['Esc', 'Cancel editing'], ['Ctrl+C', 'Copy selected cells'],
     ];
@@ -367,6 +378,9 @@ class App {
     } else if (ctrl && !e.shiftKey && e.key.toLowerCase() === 'w' && this.activeQuery()) {
       e.preventDefault();
       this.tabs.close(this.tabs.active);
+    } else if (ctrl && !e.altKey && e.key.toLowerCase() === 's') {
+      e.preventDefault(); // never the browser's "Save page"; query tabs handle Ctrl+S themselves
+      this.activeQuery()?.saveToLibrary({ asNew: e.shiftKey });
     } else if (e.key === 'F9' && !this.activeQuery()) {
       e.preventDefault();
       this.queryForRun()?.run(e.ctrlKey && e.shiftKey ? 'current' : e.ctrlKey ? 'selection' : 'all');
@@ -543,24 +557,27 @@ class App {
 
   // ---------- query tabs ----------
 
-  openQueryTab(sql = '', title, { activate = true } = {}) {
+  openQueryTab(sql = '', title, { activate = true, savedId = null } = {}) {
     this.queryCounter++;
     const id = 'q' + this.queryCounter;
     const t = title || (this.queryCounter === 1 ? 'Query' : `Query #${this.queryCounter}`);
-    const v = new QueryView(this, { id, sql, title: t });
+    const v = new QueryView(this, { id, sql, title: t, savedId });
     this.queryViews.push(v);
     this.tabs.add({
       id, title: t, iconName: 'query', view: v, closable: true,
       onClose: () => {
         if (this.queryViews.length === 1) {
           v.editor.value = '';
+          v.linkSaved(null);
           this.saveStateSoon();
           return false;
         }
         this.queryViews.splice(this.queryViews.indexOf(v), 1);
+        v.dispose();
         this.saveStateSoon();
       },
     });
+    v.updateSavedState();
     if (activate) this.tabs.activate(id);
     this.saveStateSoon();
     return v;
@@ -584,6 +601,41 @@ class App {
   queryForFile() {
     const v = this.activeQuery();
     return v && !v.sql.trim() ? v : this.openQueryTab();
+  }
+
+  // ---------- saved queries and snippets ----------
+
+  /** Shows or hides the library panel in all query tabs (one shared setting). */
+  toggleLibrary(open = !this.state.layout?.libraryOpen) {
+    this.state.layout = { ...this.state.layout, libraryOpen: open };
+    for (const v of this.queryViews) v.syncLibrary();
+    this.saveStateSoon();
+    if (open) this.queryForRun()?.libPanel?.filter.focus();
+  }
+
+  /**
+   * Opens a saved query: activates a tab already showing it, else loads it into the active query tab
+   * when that is empty, else into a new tab. `newTab` always opens a new tab; `run` executes it.
+   */
+  openSavedQuery(q, { newTab = false, run = false } = {}) {
+    let v = newTab ? null : this.queryViews.find(x => x.savedId === q.id);
+    if (!v) {
+      const cur = this.activeQuery();
+      if (!newTab && cur && !cur.sql.trim()) {
+        v = cur;
+        v.editor.value = q.sql;
+        v.linkSaved(q);
+      } else v = this.openQueryTab(q.sql, q.name, { savedId: q.id });
+    }
+    this.tabs.activate(v.id);
+    if (run) v.run('all');
+    return v;
+  }
+
+  snippetVars() {
+    const { db, obj } = this.sel;
+    const table = obj && (obj.type === 'table' || obj.type === 'view') ? obj.name : null;
+    return snippetVars({ db, table, ident });
   }
 
   addHistory(sql, db) {
@@ -849,7 +901,6 @@ class App {
   async complete({ text, prefix, qualifier }) {
     const { sid, db } = this.sel;
     const items = [];
-    const ident = n => (/^[A-Za-z_$][\w$]*$/.test(n) && !KEYWORDS.has(n.toUpperCase()) ? n : qi(n));
     if (sid) {
       const aliases = parseAliases(text, db);
       if (qualifier) {
@@ -878,12 +929,16 @@ class App {
       for (const d of await this.getDatabases(sid)) items.push({ label: d, icon: 'database', detail: 'database', insert: ident(d) });
     }
     if (prefix) {
+      for (const sn of this.library.snippets) if (sn.trigger) items.push({ label: sn.trigger, icon: 'snippet', detail: sn.name, snippet: sn.body });
       for (const k of FUNCTIONS) items.push({ label: k, icon: 'function', detail: 'function', insert: k + '(' });
       for (const k of KEYWORDS) if (!FUNCTIONS.has(k)) items.push({ label: k, detail: 'keyword' });
     }
     return items;
   }
 }
+
+/** An identifier as typed: bare when safe, else backquoted. */
+const ident = n => (/^[A-Za-z_$][\w$]*$/.test(n) && !KEYWORDS.has(n.toUpperCase()) ? n : qi(n));
 
 const ALIAS_RE = /\b(?:from|join|update|into|table|describe|desc)\s+((?:`(?:[^`]|``)+`|[\w$]+)(?:\s*\.\s*(?:`(?:[^`]|``)+`|[\w$]+))?)(?:\s+(?:as\s+)?(`(?:[^`]|``)+`|[\w$]+))?/gi;
 const unquote = s => (s.startsWith('`') ? s.slice(1, -1).replace(/``/g, '`') : s);

@@ -8,19 +8,27 @@ import { splitSql, statementAt } from '../sqlsplit.js';
 import { Grid, sortRows } from '../grid.js';
 import { contextMenu, modal } from '../dialogs.js';
 import { exportGridDialog } from './tools.js';
+import { attachLibraryPanel, editQueryDialog } from './library.js';
+import { findSnippet } from '../library.js';
 
 const DDL_RE = /^\s*(?:\/\*.*?\*\/\s*)*(create|drop|alter|rename|truncate)\b/is;
 
 export class QueryView {
-  constructor(app, { id, sql = '', title = 'Query' }) {
+  constructor(app, { id, sql = '', title = 'Query', savedId = null }) {
     this.app = app;
     this.id = id;
     this.title = title;
+    this.savedId = savedId && app.library.query(savedId) ? savedId : null; // linked saved query (Ctrl+S updates it)
     this.running = false;
     this.sets = [];
     this.active = 0;
 
-    this.editor = new SqlEditor({ value: sql, completer: o => this.app.complete(o), onChange: () => this.app.saveStateSoon() });
+    this.editor = new SqlEditor({
+      value: sql,
+      completer: o => this.app.complete(o),
+      onChange: () => { this.app.saveStateSoon(); this.updateSavedState(); },
+      snippets: { lookup: t => findSnippet(app.library.snippets, t), vars: () => app.snippetVars() },
+    });
     const btn = (ic, label, title, fn) => h('button', { class: 'tbtn', title, html: icon(ic) + (label ? `<span>${label}</span>` : ''), onclick: fn });
     this.runBtn = btn('play', 'Run', 'Execute SQL (F9)', () => this.run('all'));
     this.runSelBtn = btn('playsel', '', 'Execute selection (Ctrl+F9)', () => this.run('selection'));
@@ -32,6 +40,8 @@ export class QueryView {
       btn('open', '', 'Load SQL file', () => this.loadFile()),
       btn('save', '', 'Save SQL file', () => this.saveFile()),
       btn('history', '', 'Query history', () => this.showHistory()),
+      btn('bookmark', '', 'Save to library (Ctrl+S)', () => this.saveToLibrary()),
+      (this.libBtn = btn('library', '', 'Saved queries and snippets', () => app.toggleLibrary())),
       btn('format', '', 'Reformat (uppercase keywords)', () => this.reformat()),
       h('div', { class: 'grow' }), this.dbLabel);
 
@@ -68,12 +78,19 @@ export class QueryView {
     });
     this.msg = h('div', { class: 'q-msg' });
     this.results = h('div', { class: 'q-results' }, this.resTabs, this.grid.el, this.msg);
-    this.el = h('div', { class: 'view query-view' }, toolbar, this.edWrap, split, this.results);
+    this.body = h('div', { class: 'q-body' }, h('div', { class: 'q-main' }, this.edWrap, split, this.results));
+    this.el = h('div', { class: 'view query-view' }, toolbar, this.body);
+    this.offLibrary = app.library.onChange(() => this.onLibraryChange());
+    this.syncLibrary();
 
     this.el.addEventListener('keydown', e => {
       if (e.key === 'F9') {
         e.preventDefault();
         this.run(e.ctrlKey && e.shiftKey ? 'current' : e.ctrlKey ? 'selection' : 'all');
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's' && !e.altKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.saveToLibrary({ asNew: e.shiftKey });
       } else if (e.key === 'Enter' && e.ctrlKey && !e.shiftKey && e.target === this.editor.ta) {
         e.preventDefault();
         this.run('current');
@@ -85,7 +102,80 @@ export class QueryView {
     const { sid, db } = this.app.sel;
     const info = sid ? this.app.conns.get(sid) : null;
     this.dbLabel.textContent = info ? `${info.name}${db ? ' › ' + db : ''}` : 'Not connected';
+    if (this.libPanel && this.app.state.layout?.libraryOpen) this.libPanel.render();
     setTimeout(() => this.editor.focus(), 0);
+  }
+
+  dispose() {
+    this.offLibrary();
+    this.libPanel?.dispose();
+  }
+
+  // ---------- library ----------
+
+  /** Shows or hides the library panel to match the shared setting. */
+  syncLibrary() {
+    const open = !!this.app.state.layout?.libraryOpen;
+    if (open && !this.libPanel) {
+      const { panel, split, host } = attachLibraryPanel(this.app, this, this.body);
+      this.libPanel = panel;
+      this.libParts = [split, host];
+    }
+    this.libParts?.forEach(el => { el.style.display = open ? '' : 'none'; });
+    this.libBtn.classList.toggle('active', open);
+    if (open) this.libPanel.render();
+  }
+
+  get savedQuery() { return this.savedId ? this.app.library.query(this.savedId) : null; }
+
+  linkSaved(q) {
+    this.savedId = q?.id ?? null;
+    if (q) this.setTitle(q.name);
+    this.updateSavedState();
+    this.libPanel?.render();
+    this.app.saveStateSoon();
+  }
+
+  setTitle(title) {
+    this.title = title;
+    this.app.tabs?.setTitle(this.id, title);
+  }
+
+  /** The tab shows "modified" while the editor differs from the linked saved query. */
+  updateSavedState() {
+    const q = this.savedQuery;
+    this.app.tabs?.setModified(this.id, !!q && q.sql !== this.editor.value);
+    const tab = this.app.tabs?.tabs.get(this.id);
+    if (tab) tab.el.title = q ? `Saved query: ${q.folder ? q.folder + '/' : ''}${q.name}` : '';
+  }
+
+  onLibraryChange() {
+    const q = this.savedQuery;
+    if (this.savedId && !q) this.savedId = null; // deleted from the library: the tab keeps its text
+    else if (q && q.name !== this.title) this.setTitle(q.name);
+    this.updateSavedState();
+  }
+
+  /** Ctrl+S: updates the linked saved query, or asks for a name (always with `asNew`, Ctrl+Shift+S). */
+  async saveToLibrary({ asNew = false } = {}) {
+    const sql = this.editor.value;
+    const q = this.savedQuery;
+    try {
+      if (q && !asNew) {
+        await this.app.library.updateQuery(q.id, { sql });
+        this.app.setStatus(`Saved "${q.name}" to the library.`);
+      } else {
+        if (!sql.trim()) return this.app.showError(new Error('The editor is empty; there is nothing to save.'));
+        const isDefault = /^Query( #\d+)?$/.test(this.title) || /\.sql$/i.test(this.title);
+        const r = await editQueryDialog(this.app, { sql, name: isDefault ? '' : this.title, folder: q?.folder });
+        if (!r) return;
+        this.linkSaved(r);
+        this.app.setStatus(`Saved "${r.name}" to the library.`);
+      }
+      this.updateSavedState();
+    } catch (e) {
+      this.app.showError(e);
+    }
   }
 
   get sql() { return this.editor.value; }
@@ -282,8 +372,9 @@ export class QueryView {
       return;
     }
     this.editor.value = await f.text();
-    this.app.tabs.setTitle(this.id, f.name);
-    this.title = f.name;
+    this.savedId = null;
+    this.setTitle(f.name);
+    this.updateSavedState();
     this.app.saveStateSoon();
   }
 
@@ -330,8 +421,15 @@ export class QueryView {
       title: 'Query history',
       width: 700,
       body: c => { ctxRef = c; return h('div', { class: 'hist' }, filter, list); },
-      buttons: [{ label: 'Load into editor', value: 'load', primary: true }, { label: 'Close', value: null }],
+      buttons: [
+        { label: 'Save to library…', value: 'save', align: 'left' },
+        { label: 'Load into editor', value: 'load', primary: true }, { label: 'Close', value: null },
+      ],
     });
+    if (r === 'save' && shown[sel]) {
+      const saved = await editQueryDialog(this.app, { sql: shown[sel].sql });
+      if (saved) this.app.setStatus(`Saved "${saved.name}" to the library.`);
+    }
     if (r === 'load' && shown[sel]) {
       this.editor.ta.select();
       this.editor.insert(shown[sel].sql);

@@ -57,7 +57,7 @@ public sealed class SessionProfile
 /// <summary>Persists session profiles and UI state in the configuration directory.</summary>
 public sealed class SessionStore
 {
-    readonly string sessionsFile, keyFile, stateFile;
+    readonly string sessionsFile, keyFile, stateFile, libraryFile;
     readonly object gate = new();
     readonly List<SessionProfile> sessions;
     readonly byte[] key;
@@ -68,6 +68,7 @@ public sealed class SessionStore
         sessionsFile = Path.Combine(o.ConfigDir, "sessions.json");
         keyFile = Path.Combine(o.ConfigDir, "secret.key");
         stateFile = Path.Combine(o.ConfigDir, "state.json");
+        libraryFile = Path.Combine(o.ConfigDir, "library.json");
         key = LoadOrCreateKey();
         sessions = Load();
     }
@@ -173,6 +174,40 @@ public sealed class SessionStore
         lock (gate) WriteAtomic(stateFile, json);
     }
 
+    /// <summary>The saved queries and snippets library, or null when none was saved yet (the UI then seeds default snippets).</summary>
+    public JsonElement? LoadLibrary()
+    {
+        lock (gate)
+        {
+            foreach (var file in new[] { libraryFile, libraryFile + ".bak" })
+            {
+                try
+                {
+                    if (!File.Exists(file)) continue;
+                    using var doc = JsonDocument.Parse(File.ReadAllText(file));
+                    if (IsLibrary(doc.RootElement)) return doc.RootElement.Clone();
+                }
+                catch (Exception) { /* corrupt: fall back to the backup */ }
+            }
+            return null;
+        }
+    }
+
+    /// <summary>Replaces the library; the previous version is kept as library.json.bak.</summary>
+    public void SaveLibrary(JsonElement library)
+    {
+        if (!IsLibrary(library)) throw new ArgumentException("A library needs \"queries\" and \"snippets\" arrays.");
+        lock (gate)
+        {
+            if (File.Exists(libraryFile)) File.Copy(libraryFile, libraryFile + ".bak", true);
+            WriteAtomic(libraryFile, JsonSerializer.Serialize(library, Json));
+        }
+    }
+
+    static bool IsLibrary(JsonElement e) =>
+        e.ValueKind == JsonValueKind.Object
+        && e.TryGetProperty("queries", out var q) && q.ValueKind == JsonValueKind.Array
+        && e.TryGetProperty("snippets", out var s) && s.ValueKind == JsonValueKind.Array;
     static SessionProfile Sanitize(SessionProfile s)
     {
         var c = s.Clone();

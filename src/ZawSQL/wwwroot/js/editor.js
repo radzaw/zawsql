@@ -1,7 +1,8 @@
 // Lightweight SQL editor: a transparent <textarea> over a syntax-highlighted <pre>,
-// with line numbers, auto-indent, block indent, comment toggling and autocompletion.
+// with line numbers, auto-indent, block indent, comment toggling, autocompletion and snippets.
 import { h, esc } from './util.js';
 import { icon } from './icons.js';
+import { expandSnippet } from './library.js';
 
 export const KEYWORDS = new Set(`ACCESSIBLE ADD AFTER ALGORITHM ALL ALTER ANALYZE AND AS ASC AUTO_INCREMENT BEFORE BEGIN BETWEEN BIGINT BINARY BIT
 BLOB BOOL BOOLEAN BOTH BY CALL CASCADE CASE CHANGE CHAR CHARACTER CHARSET CHECK COLLATE COLUMN COLUMNS COMMENT COMMIT CONDITION
@@ -56,8 +57,12 @@ export function highlightSql(text) {
 const measureCtx = document.createElement('canvas').getContext('2d');
 
 export class SqlEditor {
-  constructor({ value = '', completer = null, onChange = null, readOnly = false, placeholder = '' } = {}) {
+  /**
+   * `snippets`: { lookup(trigger) -> {body}|null, vars() -> {DB, TABLE, …} } enables Tab expansion of snippet triggers.
+   */
+  constructor({ value = '', completer = null, onChange = null, readOnly = false, placeholder = '', snippets = null } = {}) {
     this.completer = completer;
+    this.snippets = snippets;
     this.onChange = onChange;
     this.lines = 0;
     this.gutterInner = h('div', { class: 'sqled-lines' });
@@ -65,11 +70,16 @@ export class SqlEditor {
     this.code = h('code');
     this.pre = h('pre', { class: 'sqled-hl', 'aria-hidden': 'true' }, this.code);
     this.ta = h('textarea', { class: 'sqled-ta', spellcheck: false, autocomplete: 'off', autocapitalize: 'off', wrap: 'off', placeholder });
-    this.main = h('div', { class: 'sqled-main' }, this.pre, this.ta);
+    this.snipHint = h('div', { class: 'sqled-snip-hint' }, 'Tab: next field · Shift+Tab: previous · Esc: done');
+    this.main = h('div', { class: 'sqled-main' }, this.pre, this.ta, this.snipHint);
     this.el = h('div', { class: 'sqled' }, this.gutter, this.main);
     this.ta.value = value;
     this.ta.readOnly = readOnly;
+    this.ta.addEventListener('beforeinput', e => {
+      if (this.snip) this.snipPre = { s: this.ta.selectionStart, e: this.ta.selectionEnd, len: this.ta.value.length, type: e.inputType };
+    });
     this.ta.addEventListener('input', () => {
+      if (this.snip) this.trackSnippetEdit();
       this.scheduleUpdate();
       this.onChange?.();
       if (this.popup) this.refreshCompletion();
@@ -155,8 +165,15 @@ export class SqlEditor {
       if (e.key === 'Escape') { this.closeCompletion(); e.preventDefault(); e.stopPropagation(); return; }
     }
     if (this.ta.readOnly) return;
+    if (this.snip && e.key === 'Tab' && !e.ctrlKey && !e.altKey) { e.preventDefault(); this.gotoStop(this.snip.i + (e.shiftKey ? -1 : 1)); return; }
+    if (this.snip && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.endSnippet(); return; }
     if (e.key === ' ' && e.ctrlKey) { e.preventDefault(); this.openCompletion(true); return; }
-    if (e.key === 'Tab' && !e.ctrlKey && !e.altKey) { e.preventDefault(); this.indent(e.shiftKey); return; }
+    if (e.key === 'Tab' && !e.ctrlKey && !e.altKey) {
+      e.preventDefault();
+      if (!e.shiftKey && this.expandTrigger()) return;
+      this.indent(e.shiftKey);
+      return;
+    }
     if (e.key === 'Enter' && !e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
       const v = this.ta.value, pos = this.ta.selectionStart;
       const ls = v.lastIndexOf('\n', pos - 1) + 1;
@@ -236,6 +253,9 @@ export class SqlEditor {
       return;
     }
     if (seq !== this.compSeq || document.activeElement !== this.ta) return;
+    // The caret may have moved on while the items loaded (e.g. Tab to the next snippet field).
+    const { selectionStart: now, selectionEnd } = this.ta;
+    if (now !== selectionEnd || now < w.start || !/^[\w$]*$/.test(this.ta.value.slice(w.start, now))) return;
     this.compAll = items || [];
     this.compStart = w.start;
     this.showCompletion(w.prefix);
@@ -310,6 +330,7 @@ export class SqlEditor {
     const pos = this.ta.selectionStart;
     this.closeCompletion();
     if (!it) return;
+    if (it.snippet != null) return this.insertSnippet(it.snippet, { from: this.compStart, to: pos });
     this.ta.setSelectionRange(this.compStart, pos);
     this.insert(it.insert ?? it.label);
   }
@@ -318,5 +339,77 @@ export class SqlEditor {
     this.compSeq = (this.compSeq || 0) + 1;
     this.popup?.remove();
     this.popup = null;
+  }
+
+  // ---------- snippets ----------
+
+  /** Tab after a snippet trigger (with no selection) expands it; false when there is nothing to expand. */
+  expandTrigger() {
+    const { selectionStart: pos, selectionEnd } = this.ta;
+    if (!this.snippets || pos !== selectionEnd) return false;
+    const w = this.wordAt(pos);
+    if (w.qualifier || !w.prefix) return false;
+    const sn = this.snippets.lookup(w.prefix);
+    if (!sn) return false;
+    this.insertSnippet(sn.body, { from: w.start, to: pos });
+    return true;
+  }
+
+  /**
+   * Inserts an expanded snippet over [from, to) (default: the selection, which becomes ${SELECTION}),
+   * then selects the first tab stop. Undo removes the whole insertion.
+   */
+  insertSnippet(body, { from, to } = {}) {
+    const ta = this.ta, v = ta.value;
+    const selected = from == null ? v.slice(ta.selectionStart, ta.selectionEnd) : '';
+    from ??= ta.selectionStart;
+    to ??= ta.selectionEnd;
+    const indent = /^[ \t]*/.exec(v.slice(v.lastIndexOf('\n', from - 1) + 1, from))[0];
+    const r = expandSnippet(body, { ...(this.snippets?.vars?.() || {}), SELECTION: selected }, indent);
+    this.endSnippet();
+    ta.focus();
+    ta.setSelectionRange(from, to);
+    this.insert(r.text);
+    const stops = r.stops.map(st => ({ start: from + st.start, end: from + st.end }));
+    stops.push({ start: from + r.cursor, end: from + r.cursor, final: true });
+    if (stops.length === 1) return this.selectRange(stops[0].start, stops[0].end);
+    this.snip = { stops, i: 0 };
+    this.el.classList.add('snippet-active');
+    this.gotoStop(0);
+  }
+
+  gotoStop(i) {
+    const sn = this.snip;
+    if (!sn) return;
+    sn.i = Math.max(0, Math.min(i, sn.stops.length - 1));
+    const st = sn.stops[sn.i];
+    this.selectRange(st.start, st.end);
+    if (st.final) this.endSnippet();
+  }
+
+  endSnippet() {
+    this.snip = null;
+    this.snipPre = null;
+    this.el.classList.remove('snippet-active');
+  }
+
+  /** Keeps tab stops in place while the active field is edited; an edit elsewhere (or undo) ends the snippet. */
+  trackSnippetEdit() {
+    const pre = this.snipPre, sn = this.snip;
+    this.snipPre = null;
+    const cur = sn.stops[sn.i];
+    if (!pre || pre.type?.startsWith('history')) return this.endSnippet();
+    let rs = pre.s, re = pre.e;
+    if (rs === re && pre.type === 'deleteContentBackward') rs--;
+    if (rs === re && pre.type === 'deleteContentForward') re++;
+    if (rs < cur.start || re > cur.end) return this.endSnippet();
+    const delta = this.ta.value.length - pre.len;
+    const oldEnd = cur.end;
+    cur.end += delta;
+    for (const st of sn.stops) {
+      if (st === cur || st.start < oldEnd) continue;
+      st.start += delta;
+      st.end += delta;
+    }
   }
 }

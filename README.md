@@ -38,6 +38,11 @@ The backend is an ASP.NET Core app that talks to the database (via [MySqlConnect
 - **Data tab**: virtualized grid with paging, sorting, WHERE filter, quick search and quick filters. You can edit in place (enum dropdowns, multi-line editor), insert, delete and set NULL. It works on tables without a primary key too.
 - **Query tabs**: SQL editor with syntax highlighting, line numbers and autocompletion (tables, columns incl. aliases, keywords, functions). Run all, the selection or the current statement. Supports `DELIMITER` and multiple result sets, has a Stop button and query history. Tabs are restored on the next start.
 - **Editable query results**: when a result's table columns all come from one table and include its primary/unique key, you can edit, insert and delete rows right in the result grid (aliased columns work too; computed columns stay read-only). The header shows "Editable: db.table", or "Read-only" with the reason as a tooltip.
+- **Saved queries and snippets** (the bookmark and library buttons in a query tab, or the Query menu):
+  - **Ctrl+S** saves the tab's SQL to the library with a name, an optional folder (`Reports/Monthly`) and a description. The tab is then linked to that query: it takes the query's name, shows a modified mark while the editor differs, and Ctrl+S updates it. Ctrl+Shift+S saves a copy.
+  - The side panel lists saved queries by folder, with a filter that searches names, folders, descriptions and SQL. Double-click opens a query (or switches to the tab already showing it). The context menu can also open it in a new tab, run it, insert it at the cursor, edit, duplicate or delete it.
+  - **Snippets** are reusable fragments with a trigger word: type `sel` and press **Tab** to expand it. Tab then moves through its fields (`${1:table}`, `${2:*}`, …), Shift+Tab goes back and Esc finishes. Snippets can use the table and database selected in the tree, today's date, and the selected text (double-clicking `tx` in the panel wraps the selection in a transaction). Triggers also appear in autocompletion. Twelve common snippets are included; you can edit or delete them, add your own, and restore the defaults.
+  - The library is stored in `library.json` in the configuration directory, and the previous version is kept as `library.json.bak`. Import and export (JSON) let you share it or move it to another machine; importing merges and skips duplicates.
 - **Export / import**: dump a database or selected tables to SQL (structure, data, routines, triggers, events). Export grid rows as CSV, TSV, SQL, JSON, Markdown or HTML. Run large SQL files with a progress dialog.
 - **Dark mode:** a light and a dark theme, plus "Follow system", which switches live when the OS theme changes. Toggle with the sun/moon toolbar button or pick in **Tools › Theme**. The saved theme is applied before the window first paints (no light flash), and the app window's title bar follows it.
 - SQL log panel and status bar.
@@ -59,6 +64,10 @@ The backend is an ASP.NET Core app that talks to the database (via [MySqlConnect
 **User manager**: accounts, passwords, limits, privileges and roles.
 
 ![User manager dialog](docs/user-manager.webp)
+
+**Saved queries and snippets**: the library panel in a query tab, with folders, a filter and a tab linked to a saved query.
+
+![Query tab with the saved queries panel grouped by folder](docs/saved-queries.png)
 
 **Server monitor**: live load charts with a hover tooltip, headline tiles and a table view.
 
@@ -92,10 +101,10 @@ Output goes to `dist/<runtime>/`, one self-contained file per platform (about 50
 
 | Suite | What it covers | Command |
 | --- | --- | --- |
-| C# unit tests | read-only guard, `SHOW GRANTS` parser, value formatting and quoting, encrypted session store, HTTP layer (token, static files, sessions, state) | `dotnet test` |
+| C# unit tests | read-only guard, `SHOW GRANTS` parser, value formatting and quoting, encrypted session store, library file and backup, HTTP layer (token, static files, sessions, state, library) | `dotnet test` |
 | C# integration tests | browsing, data formatting, row edits, queries and cancel, dump plus re-import, read-only enforcement, user manager, partitions, table maintenance, server monitor sampling, session flags, SSH tunnels (password, keys, host key checks) | `dotnet test` with `ZAWSQL_TEST_HOST` set (see below) |
-| UI unit tests | SQL splitter, safety classifier, highlighter, partition SQL, user-manager SQL, grid export, monitor rates and axis scales | `cd tests/js && npm test` (Node 22+, no dependencies) |
-| End-to-end | real browser: session manager, grid editing, query tab and in-place result editing, WHERE-less DELETE guard, table editor, table maintenance, server monitor (charts, tooltips, table view), user manager, dark mode, SSH tunnel, no JS errors | `cd tests/e2e && npm ci && npx playwright install chromium && npx playwright test` |
+| UI unit tests | SQL splitter, safety classifier, highlighter, partition SQL, user-manager SQL, grid export, monitor rates and axis scales, snippet expansion, library grouping and import | `cd tests/js && npm test` (Node 22+, no dependencies) |
+| End-to-end | real browser: session manager, grid editing, query tab and in-place result editing, WHERE-less DELETE guard, saved queries and snippets, table editor, table maintenance, server monitor (charts, tooltips, table view), user manager, dark mode, SSH tunnel, no JS errors | `cd tests/e2e && npm ci && npx playwright install chromium && npx playwright test` |
 
 Integration and end-to-end tests need a MySQL or MariaDB server, configured with environment variables. The account needs full privileges; tests create and drop their own uniquely named databases and users.
 
@@ -138,6 +147,8 @@ Configuration is stored in `%APPDATA%\ZawSQL` on Windows and `~/.config/ZawSQL` 
 | Ctrl+Space | Autocomplete (also opens after typing `.`) |
 | Ctrl+/ | Toggle comment |
 | Ctrl+T | New query tab |
+| Ctrl+S / Ctrl+Shift+S | Save query to the library / save as a new query |
+| Tab after a snippet trigger | Expand the snippet; then Tab / Shift+Tab move between its fields, Esc finishes |
 | F2, Enter or typing | Edit grid cell (Ctrl+Enter applies multi-line edits) |
 | Insert / Ctrl+Delete | Insert row / delete selected rows |
 | Ctrl+Shift+N | Set cell to NULL |
@@ -160,13 +171,14 @@ src/ZawSQL/
   RowWriter.cs          grid edits -> INSERT / UPDATE / DELETE
   SqlDumper.cs          SQL export
   ServerMonitor.cs      status/variables/active-queries sample for the live monitor
-  SessionStore.cs       saved sessions + UI state (JSON)
+  SessionStore.cs       saved sessions, UI state and the query library (JSON)
   Heartbeat.cs          exits when the last window closes
   BrowserLauncher.cs    finds Chrome/Edge/Chromium and opens an --app window
   wwwroot/              UI (no build step, no external dependencies)
     js/app.js           layout, menus, tabs, tree actions, autocompletion
     js/grid.js          virtualized editable grid
-    js/editor.js        SQL editor
+    js/editor.js        SQL editor (autocompletion, snippet tab stops)
+    js/library.js       saved queries and snippets: format, snippet expansion, import
     js/views/*.js       Host, Database, Table, Data, Query tabs and dialogs
 ```
 

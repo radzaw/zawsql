@@ -89,6 +89,13 @@ public static class Api
             return Results.Json(new Response(true, null, null, null, []));
         });
 
+        api.MapGet("/library", (SessionStore st) => RunSync(() => st.LoadLibrary()));
+        api.MapPut("/library", async (HttpRequest req, SessionStore st) =>
+        {
+            using var doc = await JsonDocument.ParseAsync(req.Body);
+            return await RunSync(() => { st.SaveLibrary(doc.RootElement); return null; });
+        });
+
         // ---- saved sessions ----
         api.MapGet("/sessions", (SessionStore st) => RunSync(() => st.List()));
         api.MapPost("/sessions", (SessionProfile p, SessionStore st) => RunSync(() => st.Save(p)));

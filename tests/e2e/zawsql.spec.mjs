@@ -106,6 +106,68 @@ test('asks before UPDATE/DELETE without WHERE and runs nothing on cancel', async
   expect(await scalar('SELECT COUNT(*) FROM logs')).toBe('2');
 });
 
+test('saves queries to the library and expands snippets', async () => {
+  const name = 'Active ' + schema;
+  const ta = page.locator('.query-view .sqled-ta').first();
+  await tab('Query').click();
+  await ta.fill("SELECT * FROM customers WHERE status = 'active'");
+  await ta.press('Control+s');
+  const dlg = page.locator('.modal.lib-dialog');
+  await expect(dlg.locator('.modal-title')).toHaveText(/Save query to library/);
+  await dlg.locator('label.frow', { hasText: 'Name:' }).locator('input').fill(name);
+  await dlg.locator('label.frow', { hasText: 'Folder:' }).locator('input').fill('E2E/Reports');
+  await dlg.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dlg).toHaveCount(0);
+  const qtab = tab(name);
+  await expect(qtab).toHaveClass(/active/);
+
+  // Editing marks the tab modified; Ctrl+S updates the saved query without asking.
+  await ta.fill("SELECT id, name FROM customers WHERE status = 'active'");
+  await expect(qtab).toHaveClass(/modified/);
+  await ta.press('Control+s');
+  await expect(qtab).not.toHaveClass(/modified/);
+  const lib = await call('GET', '/library');
+  expect(lib.queries.find(q => q.name === name)).toMatchObject({ folder: 'E2E/Reports', sql: "SELECT id, name FROM customers WHERE status = 'active'" });
+
+  // The panel lists it under its folder; opening it from another tab switches back to the linked tab.
+  await page.locator('.query-view .tbtn[title="Saved queries and snippets"]').first().click();
+  const panel = page.locator('.tab-pane.active .lib-panel');
+  await expect(panel.locator('.lib-folder', { hasText: 'E2E/Reports' })).toBeVisible();
+  await page.locator('#tabbar .tab-add').click();
+  const panel2 = page.locator('.tab-pane.active .lib-panel');
+  await panel2.locator('.lib-filter').fill(schema);
+  await panel2.locator('.lib-item', { hasText: name }).dblclick();
+  await expect(qtab).toHaveClass(/active/);
+
+  // Snippets: trigger + Tab, then Tab through the fields.
+  await tab(/^Query #/).last().click();
+  const ta2 = page.locator('.tab-pane.active .sqled-ta');
+  await ta2.click();
+  await page.keyboard.type('sel');
+  await page.keyboard.press('Tab');
+  await expect(page.locator('.tab-pane.active .sqled')).toHaveClass(/snippet-active/);
+  await page.keyboard.type('logs');
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('msg');
+  await page.keyboard.press('Escape');
+  await expect(ta2).toHaveValue('SELECT msg\nFROM logs\nWHERE 1 = 1\nLIMIT 100;');
+  await ta2.press('F9');
+  await expect(page.locator('.tab-pane.active .res-tab', { hasText: 'Result #1 (2r × 1c)' })).toBeVisible();
+
+  // Inserting from the panel wraps the selection.
+  await ta2.fill('DELETE FROM logs WHERE 0;');
+  await ta2.press('Control+a');
+  const p2 = page.locator('.tab-pane.active .lib-panel');
+  await p2.locator('.subtab', { hasText: 'Snippets' }).click();
+  await p2.locator('.lib-filter').fill('transaction');
+  await p2.locator('.lib-item').first().dblclick();
+  await expect(ta2).toHaveValue('START TRANSACTION;\nDELETE FROM logs WHERE 0;\nCOMMIT;');
+  await p2.locator('.subtab', { hasText: 'Saved queries' }).click();
+  await p2.locator('.tbtn[title="Hide panel"]').click();
+  await expect(page.locator('.lib-panel:visible')).toHaveCount(0);
+  await page.locator('#tabbar .tab.active .tab-x').click();
+});
+
 test('table editor generates ALTER code', async () => {
   await treeNode('customers').click();
   await tab(/^Table/).click();

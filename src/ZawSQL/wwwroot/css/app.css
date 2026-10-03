@@ -553,3 +553,41 @@ select.cell-inp { padding: 0 2px; }
 .menu-key { color: var(--muted); padding-left: 12px; }
 .menu-arrow { width: 12px; text-align: right; color: var(--muted); }
 .menu-sep { height: 1px; margin: 3px 4px 3px 28px; background: var(--border-light); }
+
+/* saved queries and snippets */
+.tbtn.active { background: var(--sel); border-color: var(--sel-border); }
+.q-body { flex: 1; display: flex; min-height: 0; }
+.q-main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.lib-host { flex: none; display: flex; min-width: 0; border-left: 1px solid var(--border-light); background: var(--panel); }
+.lib-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.lib-head { display: flex; align-items: center; gap: 2px; padding: 4px 4px 0; }
+.lib-head .subtab { padding: 0 7px; white-space: nowrap; }
+.lib-filter { margin: 5px 6px; width: auto; }
+.lib-list { flex: 1; overflow: auto; outline: none; border-top: 1px solid var(--border-light); }
+.lib-list:focus-visible { box-shadow: inset 0 0 0 1px var(--focus); }
+.lib-folder { display: flex; align-items: center; gap: 4px; padding: 3px 6px; font-weight: 600; cursor: default; user-select: none; }
+.lib-folder:hover { background: var(--hover); }
+.lib-chev { width: 10px; color: var(--muted); font-size: 10px; }
+.lib-count { margin-left: auto; color: var(--muted); font-weight: 400; font-size: 11px; }
+.lib-item { display: flex; align-items: flex-start; gap: 6px; padding: 3px 6px; cursor: default; border-bottom: 1px solid var(--grid-line); }
+.lib-item.nested { padding-left: 22px; }
+.lib-item > .ic { flex: none; margin-top: 1px; }
+.lib-item:hover { background: var(--hover); }
+.lib-item.sel { background: var(--sel); }
+.lib-item.linked .lib-name { font-weight: 600; }
+.lib-text { min-width: 0; flex: 1; }
+.lib-name, .lib-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lib-sub { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+.lib-trig { display: inline-block; font-family: var(--mono); font-size: 11px; padding: 0 4px; margin-right: 5px; border: 1px solid var(--border-light); border-radius: 3px; background: var(--bg); }
+.lib-empty { padding: 14px 10px; color: var(--muted); text-align: center; line-height: 1.6; }
+.lib-foot { padding: 5px 6px; border-top: 1px solid var(--border-light); }
+.lib-add { display: inline-flex; align-items: center; gap: 5px; }
+.lib-dialog .lib-ed { display: flex; height: 240px; border: 1px solid var(--border-light); margin-top: 4px; }
+.lib-dialog .lib-ed > .sqled { flex: 1; }
+.lib-dialog .frow { grid-template-columns: 90px 1fr; }
+.lib-trig-row { display: flex; align-items: center; gap: 10px; }
+.lib-help { border-collapse: collapse; font-size: 11px; color: var(--muted); }
+.lib-help td { padding: 1px 10px 1px 0; vertical-align: top; }
+.lib-help code { font-family: var(--mono); color: var(--text); white-space: nowrap; }
+.sqled-snip-hint { display: none; position: absolute; right: 18px; bottom: 6px; padding: 1px 7px; font-size: 11px; color: var(--muted); background: var(--bg); border: 1px solid var(--border-light); border-radius: 3px; pointer-events: none; }
+.sqled.snippet-active .sqled-snip-hint { display: block; }

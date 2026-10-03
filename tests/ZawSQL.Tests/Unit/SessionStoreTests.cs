@@ -85,4 +85,23 @@ public sealed class SessionStoreTests : IDisposable
         store.SaveState("""{"prefs":{"theme":"dark"}}""");
         Assert.Equal("dark", store.LoadState().GetProperty("prefs").GetProperty("theme").GetString());
     }
+
+    [Fact]
+    public void Library_keeps_a_backup_and_falls_back_to_it_when_the_file_is_corrupt()
+    {
+        var store = new SessionStore(Opts);
+        Assert.Null(store.LoadLibrary());
+        using var v1 = System.Text.Json.JsonDocument.Parse("""{"queries":[{"name":"v1"}],"snippets":[]}""");
+        using var v2 = System.Text.Json.JsonDocument.Parse("""{"queries":[{"name":"v2"}],"snippets":[]}""");
+        store.SaveLibrary(v1.RootElement);
+        store.SaveLibrary(v2.RootElement);
+        Assert.Equal("v2", store.LoadLibrary()!.Value.GetProperty("queries")[0].GetProperty("name").GetString());
+        Assert.True(File.Exists(Path.Combine(dir, "library.json.bak")));
+
+        File.WriteAllText(Path.Combine(dir, "library.json"), "{ truncated");
+        Assert.Equal("v1", new SessionStore(Opts).LoadLibrary()!.Value.GetProperty("queries")[0].GetProperty("name").GetString());
+
+        using var bad = System.Text.Json.JsonDocument.Parse("""{"queries":[]}""");
+        Assert.Throws<ArgumentException>(() => store.SaveLibrary(bad.RootElement));
+    }
 }
