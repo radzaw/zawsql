@@ -7,6 +7,7 @@ import { contextMenu, confirmDlg } from '../dialogs.js';
 import { exportGridDialog } from './tools.js';
 import { MonitorView } from './monitor.js';
 import { InsightView } from './insight.js';
+import { ReplicationView } from './replication.js';
 
 const KINDS = [
   ['databases', 'Databases'],
@@ -15,6 +16,7 @@ const KINDS = [
   ['processes', 'Processes'],
   ['monitor', 'Monitor'],
   ['insight', 'Performance'],
+  ['replication', 'Replication'],
 ];
 
 export class HostView {
@@ -45,9 +47,11 @@ export class HostView {
     this.monitor.el.style.display = 'none';
     this.insight = new InsightView(app);
     this.insight.el.style.display = 'none';
+    this.replication = new ReplicationView(app);
+    this.replication.el.style.display = 'none';
     // Kinds shown by their own panel (with their own controls) instead of the grid.
-    this.panels = { monitor: this.monitor, insight: this.insight };
-    this.el = h('div', { class: 'view host-view' }, toolbar, this.grid.el, this.monitor.el, this.insight.el);
+    this.panels = { monitor: this.monitor, insight: this.insight, replication: this.replication };
+    this.el = h('div', { class: 'view host-view' }, toolbar, this.grid.el, this.monitor.el, this.insight.el, this.replication.el);
   }
 
   onShow() {
@@ -79,6 +83,7 @@ export class HostView {
   refresh() {
     if (this.kind === 'monitor') return this.monitor.schedule(0);
     if (this.kind === 'insight') return this.insight.load();
+    if (this.kind === 'replication') return this.replication.load();
     return this.load();
   }
 

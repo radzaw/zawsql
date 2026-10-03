@@ -23,7 +23,7 @@ const timeLabel = t => new Date(t).toLocaleTimeString([], { hour: '2-digit', min
 
 const PLOT_H = 140, AXIS_H = 18, PAD_T = 8, GUTTER = 64, PAD_R = 10;
 
-class TimeChart {
+export class TimeChart {
   constructor(def) {
     this.def = def;
     this.points = [];

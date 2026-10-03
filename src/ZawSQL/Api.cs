@@ -357,6 +357,16 @@ public static class Api
             return null;
         }));
 
+        // ---- replication (status polled, not logged; start/stop logged) ----
+        s.MapGet("/replication", (string sid, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, _, _) =>
+            await Replication.StatusAsync(c, ct)));
+        s.MapPost("/replication/{action}", (string sid, string action, ReplicationActionRequest req, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, ses, log) =>
+        {
+            if (ses.Profile.ReadOnly) throw new ApiException(ReadOnlyMessage);
+            await Replication.ControlAsync(c, log, action, req.Channel, ct);
+            return null;
+        }));
+
         // ---- table maintenance ----
         s.MapPost("/maintenance", (string sid, MaintenanceRequest req, ConnectionManager cm, CancellationToken ct) => Run(async log =>
         {

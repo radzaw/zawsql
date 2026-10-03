@@ -311,6 +311,21 @@ test('performance: top queries, open transactions and killing a lock holder', as
   await page.locator('.host-view .subtab', { hasText: 'Databases' }).click();
 });
 
+test('replication status of the server', async () => {
+  await page.locator('.tn.session').first().click();
+  await tab(/^Host/).click();
+  await page.locator('.host-view .subtab', { hasText: 'Replication' }).click();
+  const rp = page.locator('.rp');
+  await expect(rp.locator('.rp-role-text')).toHaveText(/^(Primary with \d+ replicas?|Not replicating – binary log (on, no replicas connected|off)|Replica of .+)$/);
+  await expect(rp.locator('.rp-facts')).toContainText('server_id');
+  const role = await rp.locator('.rp-role-text').textContent();
+  if (role.startsWith('Primary')) {
+    await expect(rp.locator('.rp-card', { hasText: 'As a primary' }).locator('.rp-table tbody tr').first()).toBeVisible();
+    await expect(rp.locator('.rp-details')).toContainText('Binary log position');
+  }
+  await page.locator('.host-view .subtab', { hasText: 'Databases' }).click();
+});
+
 test('opens the user manager', async () => {
   await page.locator('.menubar-item', { hasText: 'Tools' }).click();
   await page.locator('.menu-item', { hasText: 'User manager' }).click();

@@ -28,6 +28,12 @@ The backend is an ASP.NET Core app that talks to the database (via [MySqlConnect
   - **Locks & transactions:** row lock waits showing who waits, for how long, which lock on which table, index and row, and who blocks it (its statement, or "idle in transaction for 2 min"). Also metadata lock waits, such as an `ALTER TABLE` stuck behind an open transaction, with the holder on MySQL. Open transactions are listed with age, rows locked and changed, and idle ones holding locks are highlighted. The latest deadlock comes from `SHOW ENGINE INNODB STATUS`. Every blocker and transaction has a **Kill** button (confirmed; unavailable in read-only sessions). Works on MySQL 8 (`data_lock_waits`) and on MariaDB and MySQL 5.7 (`INNODB_LOCK_WAITS`).
   - **Slow query log:** the newest entries of `mysql.slow_log` when the server logs to a table. Otherwise the current settings and the statement that enables it.
   - Nothing here is written to the SQL log, so polling doesn't flood it.
+- **Replication status** (Host tab › Replication), refreshed every 2–30 s:
+  - **As a replica**, for each channel (MySQL) or named connection (MariaDB): a verdict ("In sync", "12 s behind", "Stopped by an error (1062)"). It shows the receiver (IO) and applier (SQL) threads with their states, the lag with a 15-minute chart (a configured `SQL_Delay` counts as expected lag), the source and its server id/UUID, and how far events were received and applied (binary log file and position, relay log, received/executed GTID sets, MariaDB's GTID positions). Also parallel mode, retried transactions and replication filters.
+  - **Errors** are shown with their number, time and message. On MySQL's multi-threaded replicas that means the failing worker's real error (for example *Duplicate entry*) and the failed GTID, not just "Coordinator stopped". **Start replication / Stop replication** buttons (`START/STOP REPLICA`, for the channel) are confirmed, warn on production sessions and are unavailable in read-only sessions.
+  - **As a primary:** the binary log position, executed GTIDs (MariaDB: GTID binlog position), how long binary logs are kept, semi-synchronous replication, the connected replicas (connection, user, address, connected for, state) and the registered ones (server id, host, port, UUID).
+  - **Advice:** a writable replica, a read-only primary, a binlog format other than ROW, `sync_binlog` ≠ 1, GTIDs off, or file/position-based replication on MariaDB.
+  - Works with MySQL 8.0/8.4 (`SHOW REPLICA STATUS`, `SHOW BINARY LOG STATUS`, `SHOW REPLICAS`) and MariaDB (`SHOW ALL REPLICAS STATUS`, `SHOW BINLOG STATUS`, `SHOW REPLICA HOSTS`), falling back to the older `SLAVE`/`MASTER` statements.
 - **Database tab**: all objects with rows, size, dates, engine, collation and comment.
 - **Table tab**: structure editor for columns, indexes, foreign keys and options. It shows live **CREATE / ALTER code** and saves with a single ALTER. Views, routines, triggers and events open in a code editor.
 - **Partition editor** (Table tab › Partitions): RANGE, RANGE COLUMNS, LIST, LIST COLUMNS, (LINEAR) HASH and (LINEAR) KEY, with a partition list (values, comments, row counts and sizes) or a partition count.
@@ -106,6 +112,10 @@ The backend is an ASP.NET Core app that talks to the database (via [MySqlConnect
 
 ![Performance panel showing a row lock wait, a metadata lock wait, open transactions and the latest deadlock](docs/locks.png)
 
+**Replication**: a replica stopped by a conflicting row, with the worker's error, the failed transaction, positions and GTID sets.
+
+![Replication status of a replica stopped by a duplicate-key error](docs/replication.png)
+
 ## Requirements
 
 - To build: [.NET 10 SDK](https://dotnet.microsoft.com/download)
@@ -135,9 +145,9 @@ Output goes to `dist/<runtime>/`, one self-contained file per platform (about 50
 | Suite | What it covers | Command |
 | --- | --- | --- |
 | C# unit tests | read-only guard, `SHOW GRANTS` parser, value formatting and quoting, encrypted session store, library file and backup, HTTP layer (token, static files, sessions, state, library), CSV/.xlsx reading, encoding and delimiter detection, type guessing, value conversion | `dotnet test` |
-| C# integration tests | browsing, data formatting, row edits, queries and cancel, dump plus re-import, read-only enforcement, user manager, partitions, table maintenance, server monitor sampling, session flags, SSH tunnels (password, keys, host key checks), CSV/Excel import (new and existing tables, duplicate-key modes, row-numbered errors, all-or-nothing rollback), slow query and lock insight (digests, row and metadata lock waits, deadlocks, slow log table), Visual EXPLAIN (JSON plan, tabular EXPLAIN, ANALYZE, read-only rules) | `dotnet test` with `ZAWSQL_TEST_HOST` set (see below) |
-| UI unit tests | SQL splitter, safety classifier, highlighter, partition SQL, user-manager SQL, grid export, monitor rates and axis scales, snippet expansion, library grouping and import, SQL formatter (layout, keyword case, comments, stored programs, round-trip safety), import column matching and validation, query statistics snapshots and lock summaries, EXPLAIN plan parsing for MySQL and MariaDB (from real captured plans) and EXPLAIN ANALYZE trees | `cd tests/js && npm test` (Node 22+, no dependencies) |
-| End-to-end | real browser: session manager, grid editing, query tab and in-place result editing, WHERE-less DELETE guard, saved queries and snippets, SQL formatter, Visual EXPLAIN, table editor, table maintenance, server monitor (charts, tooltips, table view), user manager, dark mode, performance panel (top queries, killing a lock holder), CSV import wizard, SSH tunnel, no JS errors | `cd tests/e2e && npm ci && npx playwright install chromium && npx playwright test` |
+| C# integration tests | browsing, data formatting, row edits, queries and cancel, dump plus re-import, read-only enforcement, user manager, partitions, table maintenance, server monitor sampling, session flags, SSH tunnels (password, keys, host key checks), CSV/Excel import (new and existing tables, duplicate-key modes, row-numbered errors, all-or-nothing rollback), slow query and lock insight (digests, row and metadata lock waits, deadlocks, slow log table), Visual EXPLAIN (JSON plan, tabular EXPLAIN, ANALYZE, read-only rules), replication status (live replica: threads, lag, GTIDs, stop/start, a replication error and its recovery) | `dotnet test` with `ZAWSQL_TEST_HOST` set (see below) |
+| UI unit tests | SQL splitter, safety classifier, highlighter, partition SQL, user-manager SQL, grid export, monitor rates and axis scales, snippet expansion, library grouping and import, SQL formatter (layout, keyword case, comments, stored programs, round-trip safety), import column matching and validation, query statistics snapshots and lock summaries, EXPLAIN plan parsing for MySQL and MariaDB (from real captured plans) and EXPLAIN ANALYZE trees, replication health, lag and advice | `cd tests/js && npm test` (Node 22+, no dependencies) |
+| End-to-end | real browser: session manager, grid editing, query tab and in-place result editing, WHERE-less DELETE guard, saved queries and snippets, SQL formatter, Visual EXPLAIN, table editor, table maintenance, server monitor (charts, tooltips, table view), replication status, user manager, dark mode, performance panel (top queries, killing a lock holder), CSV import wizard, SSH tunnel, no JS errors | `cd tests/e2e && npm ci && npx playwright install chromium && npx playwright test` |
 
 Integration and end-to-end tests need a MySQL or MariaDB server, configured with environment variables. The account needs full privileges; tests create and drop their own uniquely named databases and users.
 
@@ -147,7 +157,7 @@ export ZAWSQL_TEST_HOST=127.0.0.1 ZAWSQL_TEST_PORT=3306 ZAWSQL_TEST_USER=root ZA
 dotnet test
 ```
 
-Without `ZAWSQL_TEST_HOST`, the integration tests are skipped. The SSH tunnel tests also need the throwaway SSH server from `tests/ssh` (see its README) and `ZAWSQL_TEST_SSH_*` variables.
+Without `ZAWSQL_TEST_HOST`, the integration tests are skipped. The SSH tunnel tests also need the throwaway SSH server from `tests/ssh` (see its README) and `ZAWSQL_TEST_SSH_*` variables. The replication tests need a replica of the test server: set `ZAWSQL_TEST_REPLICA_HOST` (and `ZAWSQL_TEST_REPLICA_PORT`) to it.
 
 **CI** (`.github/workflows/ci.yml`) runs on every push and pull request, without starting any database containers:
 - build and unit tests on Windows, Linux and macOS (the integration tests skip themselves there)
@@ -209,6 +219,7 @@ src/ZawSQL/
   ServerMonitor.cs      status/variables/active-queries sample for the live monitor
   Insight.cs            statement digests, slow log, lock waits, transactions, deadlocks
   Explainer.cs          EXPLAIN FORMAT=JSON / ANALYZE for Visual EXPLAIN
+  Replication.cs        replica channels and primary status, normalized across MySQL and MariaDB
   SessionStore.cs       saved sessions, UI state and the query library (JSON)
   Heartbeat.cs          exits when the last window closes
   BrowserLauncher.cs    finds Chrome/Edge/Chromium and opens an --app window
