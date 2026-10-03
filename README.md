@@ -139,11 +139,11 @@ dotnet test
 
 Without `ZAWSQL_TEST_HOST`, the integration tests are skipped. The SSH tunnel tests also need the throwaway SSH server from `tests/ssh` (see its README) and `ZAWSQL_TEST_SSH_*` variables.
 
-**CI** (`.github/workflows/ci.yml`) runs on every push and pull request:
-- build and unit tests on Windows, Linux and macOS
+**CI** (`.github/workflows/ci.yml`) runs on every push and pull request, without starting any database containers:
+- build and unit tests on Windows, Linux and macOS (the integration tests skip themselves there)
 - the UI unit tests on Node
-- the integration tests against MySQL 8.0, MySQL 8.4, MariaDB 10.11 and MariaDB 11.4
-- the Playwright tests against MySQL 8.4
+
+The integration and Playwright tests need a MySQL or MariaDB server, so run them locally, for example against throwaway Docker containers (`docker run -d -p 3306:3306 -e MYSQL_ROOT_PASSWORD=… mysql:8.4`, likewise `mariadb:11.4`).
 
 When everything passes on a push, it also publishes the standalone builds for all five platforms as downloadable artifacts.
 
