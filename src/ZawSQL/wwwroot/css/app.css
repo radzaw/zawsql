@@ -591,3 +591,49 @@ select.cell-inp { padding: 0 2px; }
 .lib-help code { font-family: var(--mono); color: var(--text); white-space: nowrap; }
 .sqled-snip-hint { display: none; position: absolute; right: 18px; bottom: 6px; padding: 1px 7px; font-size: 11px; color: var(--muted); background: var(--bg); border: 1px solid var(--border-light); border-radius: 3px; pointer-events: none; }
 .sqled.snippet-active .sqled-snip-hint { display: block; }
+
+/* CSV / Excel import wizard */
+.import-wizard .modal-body { padding: 0; }
+.imp { display: flex; flex-direction: column; height: min(640px, calc(100vh - 120px)); }
+.imp.drop { outline: 2px dashed var(--focus); outline-offset: -6px; }
+.imp-steps { display: flex; gap: 18px; padding: 8px 12px; border-bottom: 1px solid var(--border-light); background: var(--bg); flex: none; }
+.imp-step { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+.imp-step.active { color: var(--text); font-weight: 600; }
+.imp-num { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--border); font-size: 11px; font-weight: 400; }
+.imp-step.active .imp-num { background: var(--focus); border-color: var(--focus); color: var(--focus-text); }
+.imp-step.done .imp-num { background: var(--sel); border-color: var(--sel-border); }
+.imp-content { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; overflow: auto; }
+.imp-buttons { display: flex; justify-content: space-between; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--border-light); flex: none; }
+.imp-buttons > div { display: flex; gap: 6px; }
+.imp-file { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.imp-file .progress { width: 240px; }
+.imp-source { max-width: none; }
+.imp-source .frow, .imp-target .frow, .imp-opts .frow { grid-template-columns: 130px 1fr; }
+.imp-field { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.imp-radios { display: flex; gap: 16px; flex-wrap: wrap; }
+.imp-info { flex: none; }
+.imp-grid { flex: 1; min-height: 180px; display: flex; border: 1px solid var(--border-light); }
+.imp-grid > .grid { flex: 1; }
+.imp-target { flex: none; max-width: none; }
+.imp-map-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 4px; }
+.imp-map-head { display: flex; align-items: center; gap: 10px; }
+.imp-map-scroll { flex: 1; min-height: 120px; overflow: auto; border: 1px solid var(--border-light); }
+.imp-map td { padding: 0 4px; white-space: nowrap; }
+.imp-map td:first-child { width: 1%; }
+.imp-map tr.off td { color: var(--muted); }
+.imp-map select.inp { width: 100%; border: none; background: transparent; }
+.imp-sample { max-width: 260px; overflow: hidden; text-overflow: ellipsis; font-family: var(--mono); font-size: 11px; }
+.imp-opts { flex: none; max-width: none; }
+.imp-danger { color: var(--err); }
+.imp-sql-head { flex: none; }
+.imp-sql { flex: 1; min-height: 80px; margin: 0; overflow: auto; white-space: pre; }
+.imp-sql.err { color: var(--err); white-space: pre-wrap; font-family: inherit; }
+.imp-run { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; }
+.imp-run-label { font-weight: 600; }
+.imp-stats { color: var(--muted); }
+.imp-errors { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--border-light); background: var(--panel); }
+.imp-errors:empty { display: none; }
+.imp-err { display: flex; gap: 10px; padding: 2px 6px; border-bottom: 1px solid var(--grid-line); user-select: text; }
+.imp-err.error { color: var(--err); }
+.imp-err.warning { color: var(--muted); }
+.imp-row { flex: none; width: 90px; font-family: var(--mono); font-size: 11px; color: var(--muted); }

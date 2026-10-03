@@ -58,6 +58,26 @@ export const post = (path, body, o) => api('POST', path, body ?? {}, o);
 export const put = (path, body, o) => api('PUT', path, body, o);
 export const del = (path, o) => api('DELETE', path, undefined, o);
 
+/** Uploads a file as the raw request body (XHR, for upload progress). Resolves to the response data. */
+export function upload(path, file, { onProgress } = {}) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api' + path);
+    xhr.setRequestHeader('X-Token', token);
+    xhr.responseType = 'json';
+    if (onProgress) xhr.upload.onprogress = e => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
+    xhr.onerror = () => reject(new ApiError('Cannot reach the ZawSQL backend. Is the application still running?'));
+    xhr.onload = () => {
+      const j = xhr.response;
+      if (xhr.status === 401) reject(new ApiError('Not authorized. Restart ZawSQL to open a new window.'));
+      else if (!j) reject(new ApiError(xhr.status === 413 ? 'The file is too large.' : `Unexpected response from the backend (HTTP ${xhr.status}).`));
+      else if (!j.ok) reject(new ApiError(j.error || 'Unknown error', j.code, j.data));
+      else resolve(j.data);
+    };
+    xhr.send(file);
+  });
+}
+
 export function urlWithToken(path, q) {
   return '/api' + path + qs({ ...q, token });
 }

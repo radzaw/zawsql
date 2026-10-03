@@ -28,6 +28,8 @@ public static class AppHost
         builder.Services.AddSingleton<SessionStore>();
         builder.Services.AddSingleton<ConnectionManager>();
         builder.Services.AddSingleton<Heartbeat>();
+        builder.Services.AddSingleton<ImportStore>();
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance); // Windows-1250/1252, ISO-8859-x for CSV files
 
         var app = builder.Build();
 
@@ -56,7 +58,11 @@ public static class AppHost
         });
 
         Api.Map(app);
-        app.Lifetime.ApplicationStopped.Register(() => app.Services.GetRequiredService<ConnectionManager>().DisposeAsync().AsTask().Wait());
+        app.Lifetime.ApplicationStopped.Register(() =>
+        {
+            app.Services.GetRequiredService<ImportStore>().DisposeAsync().AsTask().Wait();
+            app.Services.GetRequiredService<ConnectionManager>().DisposeAsync().AsTask().Wait();
+        });
         return app;
     }
 

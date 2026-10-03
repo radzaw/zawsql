@@ -14,6 +14,7 @@ import { DataView } from './views/data.js';
 import { QueryView } from './views/query.js';
 import { userManager } from './views/users.js';
 import { maintenanceDialog } from './views/maintenance.js';
+import { importDialog } from './views/import.js';
 import { LibraryStore, editSnippetDialog } from './views/library.js';
 import { snippetVars } from './library.js';
 import { formatSql } from './sqlformat.js';
@@ -117,7 +118,7 @@ class App {
     this.queryViews = [];
     this.queryCounter = 0;
     this.saveStateSoon = debounce(() => this.saveState(), 800);
-    this.refreshViewSoon = debounce(target => this.showTarget(target), 120);
+    this.refreshViewSoon = debounce((target, from) => this.showTarget(target, from), 120);
   }
 
   async init() {
@@ -264,6 +265,7 @@ class App {
         { label: 'Load SQL file…', icon: 'open', onClick: () => this.queryForFile().loadFile() },
         { label: 'Save SQL file…', icon: 'save', disabled: !this.activeQuery(), onClick: () => this.activeQuery().saveFile() },
         { label: 'Run SQL file…', icon: 'import', disabled: !s.sid || ro, onClick: () => runSqlFile(this) },
+        { label: 'Import CSV / Excel…', icon: 'import', disabled: !s.sid || ro, onClick: () => importDialog(this, s.sid, s.db, s.obj?.type === 'table' ? s.obj.name : null) },
         '-',
         { label: 'Exit', onClick: () => this.exit() },
       ]],
@@ -296,6 +298,7 @@ class App {
         '-',
         { label: 'Export database as SQL…', icon: 'export', disabled: !s.db, onClick: () => exportDumpDialog(this, s.sid, s.db) },
         { label: 'Run SQL file…', icon: 'import', disabled: !s.sid || ro, onClick: () => runSqlFile(this) },
+        { label: 'Import CSV / Excel…', icon: 'import', disabled: !s.sid || ro, onClick: () => importDialog(this, s.sid, s.db, s.obj?.type === 'table' ? s.obj.name : null) },
         '-',
         { label: 'Theme', submenu: [['system', 'Follow system'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) => ({ label: l, checked: this.prefs.theme === v, onClick: () => { this.prefs.theme = v; this.applyPrefs(); this.saveStateSoon(); } })) },
         { label: 'Preferences…', icon: 'settings', onClick: () => preferencesDialog(this) },
@@ -479,10 +482,12 @@ class App {
     else if (['host', 'database', 'data'].includes(target)) target = 'table';
     if (isQuery) target = this.tabs.active;
     this.updateStatus();
-    this.refreshViewSoon(target);
+    this.refreshViewSoon(target, this.tabs.active);
   }
 
-  showTarget(target) {
+  /** `from`: the tab active when the switch was requested; if the user has picked another tab since, that choice wins. */
+  showTarget(target, from) {
+    if (from !== undefined && this.tabs.active !== from) return;
     if (this.tabs.active === target) this.tabs.activeView()?.onShow?.();
     else this.tabs.activate(target);
   }
@@ -836,6 +841,7 @@ class App {
       '-',
       exportable.length && { label: 'Export as SQL…', icon: 'export', onClick: () => exportDumpDialog(this, sid, db, exportable) },
       tables.length && { label: 'Maintenance…', icon: 'maintenance', onClick: () => maintenanceDialog(this, sid, db, tables) },
+      o.type === 'table' && objs.length === 1 && { label: 'Import CSV / Excel…', icon: 'import', disabled: ro, onClick: () => importDialog(this, sid, db, o.name) },
       o.type === 'table' && objs.length === 1 && { label: 'Rename…', disabled: ro, onClick: () => this.renameTable(sid, db, o.name) },
       tables.length && { label: tables.length > 1 ? `Empty ${tables.length} tables…` : 'Empty table (TRUNCATE)…', icon: 'empty', disabled: ro, onClick: () => this.truncateTables(sid, db, tables) },
       { label: objs.length > 1 ? `Drop ${objs.length} objects…` : `Drop ${o.type}…`, icon: 'trash', disabled: ro, onClick: () => this.dropObjects(sid, db, objs) },
@@ -867,6 +873,7 @@ class App {
         { label: 'Export database as SQL…', icon: 'export', onClick: () => exportDumpDialog(this, node.sid, node.db) },
         { label: 'Table maintenance…', icon: 'maintenance', onClick: () => maintenanceDialog(this, node.sid, node.db) },
         { label: 'Run SQL file…', icon: 'import', disabled: this.isReadOnly(node.sid), onClick: () => runSqlFile(this) },
+        { label: 'Import CSV / Excel…', icon: 'import', disabled: this.isReadOnly(node.sid), onClick: () => importDialog(this, node.sid, node.db) },
         '-',
         { label: 'Drop database…', icon: 'trash', disabled: this.isReadOnly(node.sid), onClick: () => this.dropDatabase(node.sid, node.db) },
         { label: 'Copy name', icon: 'copy', onClick: () => navigator.clipboard.writeText(node.db) },

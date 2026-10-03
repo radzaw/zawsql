@@ -96,6 +96,20 @@ public static class Api
             return await RunSync(() => { st.SaveLibrary(doc.RootElement); return null; });
         });
 
+        // ---- import files (not tied to a session) ----
+        api.MapPost("/import/upload", async (HttpContext ctx, string name, ImportStore store, CancellationToken ct) =>
+        {
+            if (ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } limit)
+                limit.MaxRequestBodySize = 8L * 1024 * 1024 * 1024;
+            return await Run(async _ =>
+            {
+                var f = await store.SaveAsync(ctx.Request.Body, name, ct);
+                return new { id = f.Id, name = f.Name, kind = f.Kind, size = f.Size, encodings = Importer.Encodings };
+            });
+        });
+        api.MapPost("/import/preview", (ImportPreviewRequest r, ImportStore store) => RunSync(() => Importer.Preview(store.GetFile(r.FileId), r)));
+        api.MapDelete("/import/{id}", (string id, ImportStore store) => RunSync(() => { store.DeleteFile(id); return null; }));
+
         // ---- saved sessions ----
         api.MapGet("/sessions", (SessionStore st) => RunSync(() => st.List()));
         api.MapPost("/sessions", (SessionProfile p, SessionStore st) => RunSync(() => st.Save(p)));
@@ -327,6 +341,34 @@ public static class Api
             cmd.CommandTimeout = 0; // OPTIMIZE / REPAIR can take a long time on big tables
             await using var r = await cmd.ExecuteReaderAsync(ct);
             return await Values.ReadAsync(r, int.MaxValue, ct);
+        }));
+
+        // ---- CSV / Excel import ----
+        s.MapPost("/import/start", (string sid, ImportStartRequest req, ImportStore store, ConnectionManager cm, CancellationToken ct) => Run(async log =>
+            await Importer.StartAsync(store, cm, cm.Get(sid), req, log, ct)));
+
+        s.MapPost("/import/step", (string sid, ImportStepRequest req, ImportStore store, CancellationToken ct) => Run(async log =>
+        {
+            var job = store.GetJob(sid, req.JobId);
+            try
+            {
+                var r = await job.StepAsync(req.Rows, log, ct);
+                if (r.Done) await store.RemoveJobAsync(job.Id);
+                return r;
+            }
+            catch
+            {
+                await store.RemoveJobAsync(job.Id); // rolls back an open transaction
+                throw;
+            }
+        }));
+
+        s.MapPost("/import/cancel", (string sid, ImportJobRequest req, ImportStore store) => Run(async log =>
+        {
+            store.GetJob(sid, req.JobId);
+            await store.RemoveJobAsync(req.JobId);
+            log.Add("/* Import cancelled */");
+            return null;
         }));
 
         // ---- user manager ----

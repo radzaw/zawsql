@@ -49,6 +49,11 @@ The backend is an ASP.NET Core app that talks to the database (via [MySqlConnect
   - **Snippets** are reusable fragments with a trigger word: type `sel` and press **Tab** to expand it. Tab then moves through its fields (`${1:table}`, `${2:*}`, …), Shift+Tab goes back and Esc finishes. Snippets can use the table and database selected in the tree, today's date, and the selected text (double-clicking `tx` in the panel wraps the selection in a transaction). Triggers also appear in autocompletion. Twelve common snippets are included; you can edit or delete them, add your own, and restore the defaults.
   - The library is stored in `library.json` in the configuration directory, and the previous version is kept as `library.json.bak`. Import and export (JSON) let you share it or move it to another machine; importing merges and skips duplicates.
 - **Export / import**: dump a database or selected tables to SQL (structure, data, routines, triggers, events). Export grid rows as CSV, TSV, SQL, JSON, Markdown or HTML. Run large SQL files with a progress dialog.
+- **CSV / Excel import wizard** (File or Tools menu, or right-click a database or table):
+  - **File:** CSV, TSV and text files in any encoding (detected from the BOM or the content; Windows-1250/1252, ISO-8859-x and UTF-16 can be picked), with the delimiter (comma, semicolon, tab, pipe) and quoting detected. Quoted fields may contain delimiters, doubled quotes and line breaks. Excel **.xlsx** workbooks are read directly, with a choice of worksheet; dates, times, booleans and numbers come through as in Excel. You can skip leading rows and say whether the first row holds column names. A live preview shows the first 100 rows.
+  - **Target:** a **new table**, with column names from the header and guessed types (`INT`/`BIGINT`, `DECIMAL(p,s)`, `DATE`/`DATETIME`, `TINYINT(1)`, `VARCHAR(n)`/`TEXT`; codes with leading zeros stay text), all editable, plus an optional auto-increment id. Or an **existing table**, with file columns matched to table columns by name (ignoring case, spaces, underscores and accents) and adjustable.
+  - **Options:** what to do with existing keys (report as errors, skip, update, or replace), empty cells and a NULL marker (`\N`), decimal comma (`1 234,56`), day-first or month-first dates (both suggested from the data), stop at the first error or skip failing rows, all-or-nothing in one transaction, and emptying the table first. The SQL that will run is previewed.
+  - **Import:** batched multi-row INSERTs with a progress bar, remaining time and a Stop button. Failing rows are reported with their row number in the file and MySQL's message; warnings are counted and sampled. Read-only sessions can't import, and production sessions ask first.
 - **Dark mode:** a light and a dark theme, plus "Follow system", which switches live when the OS theme changes. Toggle with the sun/moon toolbar button or pick in **Tools › Theme**. The saved theme is applied before the window first paints (no light flash), and the app window's title bar follows it.
 - SQL log panel and status bar.
 
@@ -73,6 +78,10 @@ The backend is an ASP.NET Core app that talks to the database (via [MySqlConnect
 **Saved queries and snippets**: the library panel in a query tab, with folders, a filter and a tab linked to a saved query.
 
 ![Query tab with the saved queries panel grouped by folder](docs/saved-queries.png)
+
+**CSV / Excel import**: encoding and delimiter detection with a live preview, then the target table, column mapping and options.
+
+![Import wizard previewing a semicolon-separated CSV file](docs/import-wizard.png)
 
 **Server monitor**: live load charts with a hover tooltip, headline tiles and a table view.
 
@@ -106,10 +115,10 @@ Output goes to `dist/<runtime>/`, one self-contained file per platform (about 50
 
 | Suite | What it covers | Command |
 | --- | --- | --- |
-| C# unit tests | read-only guard, `SHOW GRANTS` parser, value formatting and quoting, encrypted session store, library file and backup, HTTP layer (token, static files, sessions, state, library) | `dotnet test` |
-| C# integration tests | browsing, data formatting, row edits, queries and cancel, dump plus re-import, read-only enforcement, user manager, partitions, table maintenance, server monitor sampling, session flags, SSH tunnels (password, keys, host key checks) | `dotnet test` with `ZAWSQL_TEST_HOST` set (see below) |
-| UI unit tests | SQL splitter, safety classifier, highlighter, partition SQL, user-manager SQL, grid export, monitor rates and axis scales, snippet expansion, library grouping and import, SQL formatter (layout, keyword case, comments, stored programs, round-trip safety) | `cd tests/js && npm test` (Node 22+, no dependencies) |
-| End-to-end | real browser: session manager, grid editing, query tab and in-place result editing, WHERE-less DELETE guard, saved queries and snippets, SQL formatter, table editor, table maintenance, server monitor (charts, tooltips, table view), user manager, dark mode, SSH tunnel, no JS errors | `cd tests/e2e && npm ci && npx playwright install chromium && npx playwright test` |
+| C# unit tests | read-only guard, `SHOW GRANTS` parser, value formatting and quoting, encrypted session store, library file and backup, HTTP layer (token, static files, sessions, state, library), CSV/.xlsx reading, encoding and delimiter detection, type guessing, value conversion | `dotnet test` |
+| C# integration tests | browsing, data formatting, row edits, queries and cancel, dump plus re-import, read-only enforcement, user manager, partitions, table maintenance, server monitor sampling, session flags, SSH tunnels (password, keys, host key checks), CSV/Excel import (new and existing tables, duplicate-key modes, row-numbered errors, all-or-nothing rollback) | `dotnet test` with `ZAWSQL_TEST_HOST` set (see below) |
+| UI unit tests | SQL splitter, safety classifier, highlighter, partition SQL, user-manager SQL, grid export, monitor rates and axis scales, snippet expansion, library grouping and import, SQL formatter (layout, keyword case, comments, stored programs, round-trip safety), import column matching and validation | `cd tests/js && npm test` (Node 22+, no dependencies) |
+| End-to-end | real browser: session manager, grid editing, query tab and in-place result editing, WHERE-less DELETE guard, saved queries and snippets, SQL formatter, table editor, table maintenance, server monitor (charts, tooltips, table view), user manager, dark mode, CSV import wizard, SSH tunnel, no JS errors | `cd tests/e2e && npm ci && npx playwright install chromium && npx playwright test` |
 
 Integration and end-to-end tests need a MySQL or MariaDB server, configured with environment variables. The account needs full privileges; tests create and drop their own uniquely named databases and users.
 
@@ -176,6 +185,7 @@ src/ZawSQL/
   TableMeta.cs          columns / indexes / foreign keys / SHOW CREATE
   RowWriter.cs          grid edits -> INSERT / UPDATE / DELETE
   SqlDumper.cs          SQL export
+  Importer.cs           CSV / .xlsx reading, type guessing, batched import jobs
   ServerMonitor.cs      status/variables/active-queries sample for the live monitor
   SessionStore.cs       saved sessions, UI state and the query library (JSON)
   Heartbeat.cs          exits when the last window closes
@@ -193,4 +203,4 @@ Each connected session has one **main connection**. Query tabs and grid edits ru
 
 ## Not (yet) implemented
 
-CSV import, subpartition editing, SSH agent / jump-host chains.
+Subpartition editing, SSH agent / jump-host chains, old binary Excel .xls files (save them as .xlsx or CSV).

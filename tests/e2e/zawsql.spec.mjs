@@ -269,6 +269,43 @@ test('toggles dark mode', async () => {
   await expect(html).toHaveAttribute('data-theme', before);
 });
 
+test('imports a CSV file into a new table with the wizard', async () => {
+  await treeNode(schema).click({ button: 'right' });
+  await page.locator('.ctx-root .menu-item', { hasText: 'Import CSV / Excel' }).click();
+  const dlg = page.locator('.modal.import-wizard');
+  await expect(dlg).toBeVisible();
+  const chooser = page.waitForEvent('filechooser');
+  await dlg.getByRole('button', { name: 'Choose file…' }).click();
+  // Semicolons, decimal commas and day-first dates, as Excel writes CSV in many European locales.
+  const csv = 'Product code;Name;Price;Added\nA-1;Widget;12,50;31.12.2024\nB-2;"Gadget; large";3;01.02.2025\n';
+  await (await chooser).setFiles({ name: 'New Products.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+  await expect(dlg.locator('.imp-info')).toHaveText('2 rows, 4 columns');
+  await expect(dlg.locator('.grid .gr')).toHaveCount(2);
+  await expect(dlg.locator('.grid')).toContainText('Gadget; large');
+
+  await dlg.getByRole('button', { name: 'Next' }).click();
+  await expect(dlg.locator('.imp-target input.inp').first()).toHaveValue('new_products');
+  const types = dlg.locator('.imp-map tbody tr td:nth-child(5) input');
+  await expect(types).toHaveCount(4);
+  await expect(types.nth(2)).toHaveValue('DECIMAL(4,2)');
+  await expect(types.nth(3)).toHaveValue('DATE');
+  await dlg.locator('.imp-map tbody tr').first().locator('td:nth-child(4) input').fill('code');
+
+  await dlg.getByRole('button', { name: 'Next' }).click();
+  const opt = label => dlg.locator('.imp-opts label.frow', { hasText: label }).locator('select');
+  await expect(opt('Decimal separator')).toHaveValue('true'); // suggested from the data
+  await expect(opt('Dates')).toHaveValue('DMY');
+  await expect(dlg.locator('.imp-sql')).toContainText('CREATE TABLE');
+  await expect(dlg.locator('.imp-sql')).toContainText("('A-1', 'Widget', '12.50', '2024-12-31')");
+  await dlg.getByRole('button', { name: 'Import 2 rows' }).click();
+  await expect(dlg.locator('.imp-run-label')).toContainText('Done: 2 rows read');
+  await expect(dlg.locator('.imp-stats')).toContainText('2 rows affected · 0 errors');
+  await dlg.getByRole('button', { name: 'Open table' }).click();
+  await expect(dlg).toHaveCount(0);
+  await expect(page.locator('.data-view .gr')).toHaveCount(2);
+  expect(await scalar("SELECT CONCAT(code, '|', `Name`, '|', Price, '|', Added) FROM new_products ORDER BY code LIMIT 1")).toBe('A-1|Widget|12.50|2024-12-31');
+});
+
 test('connects through an SSH tunnel after confirming the host key', async () => {
   test.skip(!SSH.host, 'Set ZAWSQL_TEST_SSH_HOST (see tests/ssh) to run the SSH tunnel test.');
   await page.locator('#toolbar .tbtn[title="Session manager"]').click();
