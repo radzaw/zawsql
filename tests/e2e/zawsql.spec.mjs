@@ -168,6 +168,27 @@ test('saves queries to the library and expands snippets', async () => {
   await page.locator('#tabbar .tab.active .tab-x').click();
 });
 
+test('formats SQL with Ctrl+Shift+F; undo restores it', async () => {
+  await page.locator('#tabbar .tab-add').click();
+  const ta = page.locator('.tab-pane.active .sqled-ta');
+  const messy = "select id, name from customers where status = 'active' and id > 1 order by name";
+  await ta.fill(messy);
+  await ta.press('Control+Shift+F');
+  await expect(ta).toHaveValue("SELECT id, name\nFROM customers\nWHERE status = 'active'\n  AND id > 1\nORDER BY name");
+  await expect(page.locator('#statusbar')).toContainText('SQL formatted');
+  await ta.press('Control+z');
+  await expect(ta).toHaveValue(messy);
+
+  // Only the selection is formatted when there is one.
+  await ta.fill('select 1;\nselect msg from logs where msg is not null;');
+  await ta.evaluate(el => el.setSelectionRange(10, el.value.length));
+  await page.locator('.tab-pane.active .tbtn[title^="Format SQL"]').click();
+  await expect(ta).toHaveValue('select 1;\nSELECT msg\nFROM logs\nWHERE msg IS NOT NULL;');
+  await ta.press('F9');
+  await expect(page.locator('.tab-pane.active .res-tab', { hasText: 'Result #2 (2r × 1c)' })).toBeVisible();
+  await page.locator('#tabbar .tab.active .tab-x').click();
+});
+
 test('table editor generates ALTER code', async () => {
   await treeNode('customers').click();
   await tab(/^Table/).click();

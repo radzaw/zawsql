@@ -38,6 +38,11 @@ The backend is an ASP.NET Core app that talks to the database (via [MySqlConnect
 - **Data tab**: virtualized grid with paging, sorting, WHERE filter, quick search and quick filters. You can edit in place (enum dropdowns, multi-line editor), insert, delete and set NULL. It works on tables without a primary key too.
 - **Query tabs**: SQL editor with syntax highlighting, line numbers and autocompletion (tables, columns incl. aliases, keywords, functions). Run all, the selection or the current statement. Supports `DELIMITER` and multiple result sets, has a Stop button and query history. Tabs are restored on the next start.
 - **Editable query results**: when a result's table columns all come from one table and include its primary/unique key, you can edit, insert and delete rows right in the result grid (aliased columns work too; computed columns stay read-only). The header shows "Editable: db.table", or "Read-only" with the reason as a tooltip.
+- **SQL formatter** (Ctrl+Shift+F, the Format button in query tabs and in the view/routine code editor, or Query › Format SQL): formats the selection, or the whole editor when nothing is selected.
+  - **Layout:** one clause per line; select lists and `SET`/`ORDER BY` lists on one line when they fit, else one item per line. Joins are indented with their `ON` conditions, and `WHERE`/`HAVING` conditions go one per line (the `AND` of `BETWEEN` excepted). Subqueries, CTEs and derived tables become indented blocks, and long `CASE` expressions are laid out.
+  - **DDL and stored programs:** `CREATE TABLE` gets one definition per line and `ALTER TABLE` one change per line. Procedures, functions, triggers and events are laid out by block (`BEGIN … END`, `IF / ELSEIF / ELSE`, `CASE`, `LOOP`, `WHILE`, `REPEAT`, labels, handlers), with or without `DELIMITER`.
+  - **Keyword case:** UPPERCASE, lowercase or as typed; indent of 2 or 4 spaces or a tab (Preferences). Names are never re-cased (`FROM status`, `INSERT INTO user`, `t.order`), since table names are case-sensitive on Linux; columns named like keywords keep their case too.
+  - **Safe by construction:** comments, strings, quoted names, `/*! … */` and optimizer hints are kept, and a space before a function's `(` is never added or removed (it changes how MySQL parses the call). Before replacing anything, the formatter re-reads its own output and checks that it is the same SQL token for token. If not, it leaves the text alone and says so. Undo restores the original, and the caret stays on the same character.
 - **Saved queries and snippets** (the bookmark and library buttons in a query tab, or the Query menu):
   - **Ctrl+S** saves the tab's SQL to the library with a name, an optional folder (`Reports/Monthly`) and a description. The tab is then linked to that query: it takes the query's name, shows a modified mark while the editor differs, and Ctrl+S updates it. Ctrl+Shift+S saves a copy.
   - The side panel lists saved queries by folder, with a filter that searches names, folders, descriptions and SQL. Double-click opens a query (or switches to the tab already showing it). The context menu can also open it in a new tab, run it, insert it at the cursor, edit, duplicate or delete it.
@@ -103,8 +108,8 @@ Output goes to `dist/<runtime>/`, one self-contained file per platform (about 50
 | --- | --- | --- |
 | C# unit tests | read-only guard, `SHOW GRANTS` parser, value formatting and quoting, encrypted session store, library file and backup, HTTP layer (token, static files, sessions, state, library) | `dotnet test` |
 | C# integration tests | browsing, data formatting, row edits, queries and cancel, dump plus re-import, read-only enforcement, user manager, partitions, table maintenance, server monitor sampling, session flags, SSH tunnels (password, keys, host key checks) | `dotnet test` with `ZAWSQL_TEST_HOST` set (see below) |
-| UI unit tests | SQL splitter, safety classifier, highlighter, partition SQL, user-manager SQL, grid export, monitor rates and axis scales, snippet expansion, library grouping and import | `cd tests/js && npm test` (Node 22+, no dependencies) |
-| End-to-end | real browser: session manager, grid editing, query tab and in-place result editing, WHERE-less DELETE guard, saved queries and snippets, table editor, table maintenance, server monitor (charts, tooltips, table view), user manager, dark mode, SSH tunnel, no JS errors | `cd tests/e2e && npm ci && npx playwright install chromium && npx playwright test` |
+| UI unit tests | SQL splitter, safety classifier, highlighter, partition SQL, user-manager SQL, grid export, monitor rates and axis scales, snippet expansion, library grouping and import, SQL formatter (layout, keyword case, comments, stored programs, round-trip safety) | `cd tests/js && npm test` (Node 22+, no dependencies) |
+| End-to-end | real browser: session manager, grid editing, query tab and in-place result editing, WHERE-less DELETE guard, saved queries and snippets, SQL formatter, table editor, table maintenance, server monitor (charts, tooltips, table view), user manager, dark mode, SSH tunnel, no JS errors | `cd tests/e2e && npm ci && npx playwright install chromium && npx playwright test` |
 
 Integration and end-to-end tests need a MySQL or MariaDB server, configured with environment variables. The account needs full privileges; tests create and drop their own uniquely named databases and users.
 
@@ -147,6 +152,7 @@ Configuration is stored in `%APPDATA%\ZawSQL` on Windows and `~/.config/ZawSQL` 
 | Ctrl+Space | Autocomplete (also opens after typing `.`) |
 | Ctrl+/ | Toggle comment |
 | Ctrl+T | New query tab |
+| Ctrl+Shift+F | Format SQL (the selection, or everything) |
 | Ctrl+S / Ctrl+Shift+S | Save query to the library / save as a new query |
 | Tab after a snippet trigger | Expand the snippet; then Tab / Shift+Tab move between its fields, Esc finishes |
 | F2, Enter or typing | Edit grid cell (Ctrl+Enter applies multi-line edits) |
@@ -179,6 +185,7 @@ src/ZawSQL/
     js/grid.js          virtualized editable grid
     js/editor.js        SQL editor (autocompletion, snippet tab stops)
     js/library.js       saved queries and snippets: format, snippet expansion, import
+    js/sqlformat.js     SQL formatter (tokenizer, layout, keyword case, round-trip check)
     js/views/*.js       Host, Database, Table, Data, Query tabs and dialogs
 ```
 

@@ -60,8 +60,9 @@ export class SqlEditor {
   /**
    * `snippets`: { lookup(trigger) -> {body}|null, vars() -> {DB, TABLE, …} } enables Tab expansion of snippet triggers.
    */
-  constructor({ value = '', completer = null, onChange = null, readOnly = false, placeholder = '', snippets = null } = {}) {
+  constructor({ value = '', completer = null, onChange = null, readOnly = false, placeholder = '', snippets = null, onFormat = null } = {}) {
     this.completer = completer;
+    this.onFormat = onFormat;
     this.snippets = snippets;
     this.onChange = onChange;
     this.lines = 0;
@@ -168,6 +169,7 @@ export class SqlEditor {
     if (this.snip && e.key === 'Tab' && !e.ctrlKey && !e.altKey) { e.preventDefault(); this.gotoStop(this.snip.i + (e.shiftKey ? -1 : 1)); return; }
     if (this.snip && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.endSnippet(); return; }
     if (e.key === ' ' && e.ctrlKey) { e.preventDefault(); this.openCompletion(true); return; }
+    if (this.onFormat && (e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'f') { e.preventDefault(); this.onFormat(); return; }
     if (e.key === 'Tab' && !e.ctrlKey && !e.altKey) {
       e.preventDefault();
       if (!e.shiftKey && this.expandTrigger()) return;

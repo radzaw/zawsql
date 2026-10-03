@@ -551,6 +551,9 @@ export async function preferencesDialog(app) {
   const theme = h('select', { class: 'inp' }, [['system', 'Follow system'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) => h('option', { value: v, selected: v === p.theme }, l)));
   const font = h('input', { class: 'inp', type: 'number', min: 9, max: 24, value: p.editorFontSize });
   const noWhere = h('input', { type: 'checkbox', checked: p.confirmNoWhere !== false });
+  const opt = (pairs, v) => h('select', { class: 'inp' }, pairs.map(([k, l]) => h('option', { value: k, selected: k === String(v) }, l)));
+  const kwCase = opt([['upper', 'UPPERCASE'], ['lower', 'lowercase'], ['keep', 'As typed']], p.formatKeywordCase);
+  const indent = opt([['2', '2 spaces'], ['4', '4 spaces'], ['tab', 'Tab']], p.formatIndent);
   const ok = await modal({
     title: 'Preferences',
     width: 440,
@@ -559,6 +562,8 @@ export async function preferencesDialog(app) {
       h('label', { class: 'frow' }, h('span', null, 'Max rows in query results:'), maxRows),
       h('label', { class: 'frow' }, h('span', null, 'Theme:'), theme),
       h('label', { class: 'frow' }, h('span', null, 'SQL editor font size:'), font),
+      h('label', { class: 'frow' }, h('span', null, 'Formatter keywords:'), kwCase),
+      h('label', { class: 'frow' }, h('span', null, 'Formatter indent:'), indent),
       h('label', { class: 'frow' }, h('span', null, 'Safety:'), h('label', { class: 'chk' }, noWhere, ' Confirm UPDATE/DELETE without WHERE'))),
     buttons: [{ label: 'OK', value: true, primary: true }, { label: 'Cancel', value: false }],
   });
@@ -569,6 +574,8 @@ export async function preferencesDialog(app) {
     theme: theme.value,
     editorFontSize: Math.max(9, parseInt(font.value, 10) || 13),
     confirmNoWhere: noWhere.checked,
+    formatKeywordCase: kwCase.value,
+    formatIndent: indent.value,
   });
   app.applyPrefs();
   app.saveStateSoon();

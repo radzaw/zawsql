@@ -28,6 +28,7 @@ export class QueryView {
       completer: o => this.app.complete(o),
       onChange: () => { this.app.saveStateSoon(); this.updateSavedState(); },
       snippets: { lookup: t => findSnippet(app.library.snippets, t), vars: () => app.snippetVars() },
+      onFormat: () => app.formatEditor(this.editor),
     });
     const btn = (ic, label, title, fn) => h('button', { class: 'tbtn', title, html: icon(ic) + (label ? `<span>${label}</span>` : ''), onclick: fn });
     this.runBtn = btn('play', 'Run', 'Execute SQL (F9)', () => this.run('all'));
@@ -42,7 +43,7 @@ export class QueryView {
       btn('history', '', 'Query history', () => this.showHistory()),
       btn('bookmark', '', 'Save to library (Ctrl+S)', () => this.saveToLibrary()),
       (this.libBtn = btn('library', '', 'Saved queries and snippets', () => app.toggleLibrary())),
-      btn('format', '', 'Reformat (uppercase keywords)', () => this.reformat()),
+      btn('format', '', 'Format SQL – the selection, or everything (Ctrl+Shift+F)', () => app.formatEditor(this.editor)),
       h('div', { class: 'grow' }), this.dbLabel);
 
     this.edWrap = h('div', { class: 'q-editor' }, this.editor.el);
@@ -385,19 +386,6 @@ export class QueryView {
       this.title = name;
       this.app.setStatus(`Saved ${name}.`);
       this.app.saveStateSoon();
-    }
-  }
-
-  reformat() {
-    // Conservative reformat: uppercase keywords outside strings/comments/identifiers.
-    const v = this.editor.value;
-    const out = v.replace(/(--[^\n]*|#[^\n]*|\/\*[\s\S]*?\*\/|'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`[^`]*`)|\b([A-Za-z_]+)\b/g, (m, skip, word) => {
-      if (skip) return m;
-      return this.app.isKeyword(word) ? word.toUpperCase() : m;
-    });
-    if (out !== v) {
-      this.editor.ta.select();
-      this.editor.insert(out);
     }
   }
 

@@ -606,13 +606,14 @@ export class TableView {
 
   renderCodeEditor() {
     const m = this.m;
-    this.editor = new SqlEditor({ value: m.origCode, onChange: () => this.codeChanged(), completer: o => this.app.complete(o), readOnly: this.readOnly() });
+    this.editor = new SqlEditor({ value: m.origCode, onChange: () => this.codeChanged(), completer: o => this.app.complete(o), readOnly: this.readOnly(), onFormat: () => this.app.formatEditor(this.editor) });
+    const formatBtn = h('button', { class: 'btn', title: 'Format the code (Ctrl+Shift+F)', disabled: this.readOnly(), onclick: () => this.app.formatEditor(this.editor) }, 'Format');
     this.saveBtn = h('button', { class: 'btn primary', onclick: () => this.saveCode() }, 'Save');
     this.discardBtn = h('button', { class: 'btn', onclick: () => { this.editor.value = m.origCode; this.codeChanged(); } }, 'Discard');
     const title = h('span', { class: 'viewtitle', html: icon(m.type) + ' ' });
     title.append(h('b', null, `${TYPE_LABEL[m.type]}: ${m.db}.${m.name}`));
     const hint = h('span', { class: 'muted' }, m.type === 'view' ? 'Saved with CREATE OR REPLACE.' : `Saving drops and re-creates the ${m.type}.`);
-    this.el.replaceChildren(h('div', { class: 'viewbar' }, title, this.readOnly() ? this.roNote() : hint, h('div', { class: 'grow' }), this.discardBtn, this.saveBtn), h('div', { class: 'tv-code' }, this.editor.el));
+    this.el.replaceChildren(h('div', { class: 'viewbar' }, title, this.readOnly() ? this.roNote() : hint, h('div', { class: 'grow' }), formatBtn, this.discardBtn, this.saveBtn), h('div', { class: 'tv-code' }, this.editor.el));
     this.codeChanged();
   }
 

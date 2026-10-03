@@ -16,10 +16,11 @@ import { userManager } from './views/users.js';
 import { maintenanceDialog } from './views/maintenance.js';
 import { LibraryStore, editSnippetDialog } from './views/library.js';
 import { snippetVars } from './library.js';
+import { formatSql } from './sqlformat.js';
 import { sessionManager, confirmHostKey, exportDumpDialog, runSqlFile, createDatabaseDialog, preferencesDialog, aboutDialog } from './views/tools.js';
 
 const TYPE_LABEL = { table: 'Table', view: 'View', procedure: 'Procedure', function: 'Function', trigger: 'Trigger', event: 'Event' };
-const DEFAULT_PREFS = { rowsPerPage: 1000, maxResultRows: 10000, theme: 'system', editorFontSize: 13, confirmNoWhere: true };
+const DEFAULT_PREFS = { rowsPerPage: 1000, maxResultRows: 10000, theme: 'system', editorFontSize: 13, confirmNoWhere: true, formatKeywordCase: 'upper', formatIndent: '2' };
 
 // ---------------------------------------------------------------- tabs
 
@@ -279,6 +280,7 @@ class App {
         { label: 'Stop', icon: 'stop', disabled: !s.sid, onClick: () => this.activeQuery()?.stop() },
         '-',
         { label: 'Query history…', icon: 'history', onClick: () => this.queryForRun()?.showHistory() },
+        { label: 'Format SQL', icon: 'format', shortcut: 'Ctrl+Shift+F', onClick: () => { const v = this.queryForRun(); if (v) this.formatEditor(v.editor); } },
         '-',
         { label: 'Save to library…', icon: 'bookmark', shortcut: 'Ctrl+S', onClick: () => this.queryForRun()?.saveToLibrary() },
         { label: 'Save to library as new…', shortcut: 'Ctrl+Shift+S', onClick: () => this.queryForRun()?.saveToLibrary({ asNew: true }) },
@@ -360,7 +362,7 @@ class App {
       ['F5', 'Refresh tree / current tab'], ['F9', 'Execute all SQL in the query tab'], ['Ctrl+F9', 'Execute selection'],
       ['Ctrl+Shift+F9 / Ctrl+Enter', 'Execute statement at the caret'], ['Ctrl+Space', 'Autocomplete'], ['Ctrl+/', 'Toggle line comment'],
       ['Tab / Shift+Tab', 'Indent / outdent'], ['Tab after a trigger', 'Expand snippet (then Tab: next field)'],
-      ['Ctrl+S', 'Save query to library'], ['Ctrl+Shift+S', 'Save query to library as new'], ['Ctrl+T', 'New query tab'], ['F2 / Enter / typing', 'Edit grid cell'],
+      ['Ctrl+Shift+F', 'Format SQL (selection or all)'], ['Ctrl+S', 'Save query to library'], ['Ctrl+Shift+S', 'Save query to library as new'], ['Ctrl+T', 'New query tab'], ['F2 / Enter / typing', 'Edit grid cell'],
       ['Ctrl+Enter', 'Apply multi-line cell edit'], ['Insert', 'Insert row'], ['Ctrl+Delete', 'Delete selected rows'],
       ['Ctrl+Shift+N', 'Set cell to NULL'], ['Esc', 'Cancel editing'], ['Ctrl+C', 'Copy selected cells'],
     ];
@@ -632,6 +634,43 @@ class App {
     return v;
   }
 
+  formatOptions() {
+    return { keywordCase: this.prefs.formatKeywordCase, indent: this.prefs.formatIndent === 'tab' ? 'tab' : Number(this.prefs.formatIndent) || 2 };
+  }
+
+  /**
+   * Formats the editor's selection, or all of it. Only whitespace and keyword case change, so the caret is
+   * kept on the same character; undo restores the original.
+   */
+  formatEditor(editor) {
+    if (editor.ta.readOnly) return;
+    const ta = editor.ta;
+    const sel = editor.selection();
+    const whole = sel.start === sel.end;
+    const src = whole ? editor.value : sel.text;
+    if (!src.trim()) return;
+    let out;
+    try {
+      out = formatSql(src, this.formatOptions());
+    } catch (e) {
+      this.showError(new Error(`This SQL could not be formatted safely, so it was left unchanged.\n\n${e.message}`));
+      return;
+    }
+    if (out === src) { this.setStatus('The SQL is already formatted.'); return; }
+    const nonWs = whole ? src.slice(0, sel.start).replace(/\s+/g, '').length : 0;
+    const top = ta.scrollTop;
+    if (whole) ta.setSelectionRange(0, src.length);
+    editor.insert(out);
+    if (whole) {
+      let p = 0;
+      for (let c = 0; p < out.length && c < nonWs; p++) if (!/\s/.test(out[p])) c++;
+      ta.setSelectionRange(p, p);
+      ta.scrollTop = top;
+    } else ta.setSelectionRange(sel.start, sel.start + out.length);
+    editor.update();
+    this.setStatus(whole ? 'SQL formatted.' : 'Selection formatted.');
+  }
+
   snippetVars() {
     const { db, obj } = this.sel;
     const table = obj && (obj.type === 'table' || obj.type === 'view') ? obj.name : null;
@@ -889,11 +928,6 @@ class App {
       this.colCache.set(k, get(`/s/${sid}/columns`, { db, table }, { quiet: true }).catch(() => { this.colCache.delete(k); return []; }));
     }
     return this.colCache.get(k);
-  }
-
-  isKeyword(w) {
-    const u = w.toUpperCase();
-    return KEYWORDS.has(u) || FUNCTIONS.has(u);
   }
 
   // ---------- autocompletion ----------
