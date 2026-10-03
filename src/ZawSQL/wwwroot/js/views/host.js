@@ -6,6 +6,7 @@ import { Grid, sortRows } from '../grid.js';
 import { contextMenu, confirmDlg } from '../dialogs.js';
 import { exportGridDialog } from './tools.js';
 import { MonitorView } from './monitor.js';
+import { InsightView } from './insight.js';
 
 const KINDS = [
   ['databases', 'Databases'],
@@ -13,6 +14,7 @@ const KINDS = [
   ['status', 'Status'],
   ['processes', 'Processes'],
   ['monitor', 'Monitor'],
+  ['insight', 'Performance'],
 ];
 
 export class HostView {
@@ -41,7 +43,11 @@ export class HostView {
     });
     this.monitor = new MonitorView(app);
     this.monitor.el.style.display = 'none';
-    this.el = h('div', { class: 'view host-view' }, toolbar, this.grid.el, this.monitor.el);
+    this.insight = new InsightView(app);
+    this.insight.el.style.display = 'none';
+    // Kinds shown by their own panel (with their own controls) instead of the grid.
+    this.panels = { monitor: this.monitor, insight: this.insight };
+    this.el = h('div', { class: 'view host-view' }, toolbar, this.grid.el, this.monitor.el, this.insight.el);
   }
 
   onShow() {
@@ -49,11 +55,11 @@ export class HostView {
     if (!sid) {
       this.key = null;
       this.grid.setData([], []);
-      this.monitor.stop();
+      this.stopPanels();
       return;
     }
-    if (this.kind === 'monitor') {
-      this.monitor.start(sid);
+    if (this.panels[this.kind]) {
+      this.panels[this.kind].start(sid);
       return;
     }
     if (this.key !== sid + ':' + this.kind) this.load();
@@ -63,11 +69,16 @@ export class HostView {
   onHide() {
     clearInterval(this.timer);
     this.timer = null;
-    this.monitor.stop();
+    this.stopPanels();
+  }
+
+  stopPanels() {
+    for (const p of Object.values(this.panels)) p.stop();
   }
 
   refresh() {
     if (this.kind === 'monitor') return this.monitor.schedule(0);
+    if (this.kind === 'insight') return this.insight.load();
     return this.load();
   }
 
@@ -76,17 +87,17 @@ export class HostView {
     this.sort = null;
     for (const b of this.subtabs.children) b.classList.toggle('active', b.dataset.k === k);
     this.autoSel.style.display = k === 'processes' ? '' : 'none';
-    // The monitor replaces the grid and has its own controls.
-    const mon = k === 'monitor';
-    this.monitor.el.style.display = mon ? '' : 'none';
-    this.grid.el.style.display = mon ? 'none' : '';
-    for (const el of [this.filter, this.countEl]) el.style.display = mon ? 'none' : '';
-    if (mon) {
+    // The monitor and the performance panel replace the grid and have their own controls.
+    const panel = this.panels[k];
+    for (const [name, p] of Object.entries(this.panels)) p.el.style.display = name === k ? '' : 'none';
+    this.grid.el.style.display = panel ? 'none' : '';
+    for (const el of [this.filter, this.countEl]) el.style.display = panel ? 'none' : '';
+    for (const [name, p] of Object.entries(this.panels)) if (name !== k) p.stop();
+    if (panel) {
       clearInterval(this.timer);
-      if (this.app.sel.sid) this.monitor.start(this.app.sel.sid);
+      if (this.app.sel.sid) panel.start(this.app.sel.sid);
       return;
     }
-    this.monitor.stop();
     this.load();
     this.setupAuto();
   }

@@ -23,6 +23,11 @@ The backend is an ASP.NET Core app that talks to the database (via [MySqlConnect
 - **Object tree**: sessions › databases › tables, views, procedures, functions, triggers, events, with sizes. Database/table filter boxes, keyboard navigation, context menus.
 - **Host tab**: databases with sizes, session/global variables, status, process list (auto-refresh, kill).
 - **Server monitor** (Host tab › Monitor): live charts of queries per second by type, connections, network traffic, row operations and problem indicators (slow queries, temp tables on disk, aborted connects), refreshed every 1–10 s over a 1, 5 or 15 minute window. Headline tiles show QPS, connection use against `max_connections`, running threads, buffer pool hit rate and fill, and uptime. Hover or use the arrow keys for exact values. A table view lists current, average and peak of every series, and the active-queries list flags queries slower than `long_query_time` and can kill them (disabled in read-only sessions). The monitor's own polling is subtracted from the numbers and not written to the SQL log. On MariaDB, which has no `Innodb_rows_*` counters, row operations come from the `Handler_*` counters.
+- **Slow query and lock insight** (Host tab › Performance), refreshed automatically or on demand:
+  - **Top queries:** every statement shape the server ran, from `performance_schema` statement digests. Shows executions, total time with its share, average and slowest run, rows examined and returned per call, and last seen. Sort by any of them and filter by text or database. System statements (including ZawSQL's own metadata queries) are hidden unless you ask. Notes flag queries that use no index, join without an index, create temp tables on disk, examine far more rows than they return, or fail. **Start measuring** shows only what runs from that moment on, to find what's slow right now rather than since the server started. The detail pane shows the formatted query (a real example on MySQL 8) with all counters, and can open it, or its EXPLAIN, in a query tab. **Reset statistics** clears the digests. When `performance_schema` is off (MariaDB's default), the panel says how to turn it on.
+  - **Locks & transactions:** row lock waits showing who waits, for how long, which lock on which table, index and row, and who blocks it (its statement, or "idle in transaction for 2 min"). Also metadata lock waits, such as an `ALTER TABLE` stuck behind an open transaction, with the holder on MySQL. Open transactions are listed with age, rows locked and changed, and idle ones holding locks are highlighted. The latest deadlock comes from `SHOW ENGINE INNODB STATUS`. Every blocker and transaction has a **Kill** button (confirmed; unavailable in read-only sessions). Works on MySQL 8 (`data_lock_waits`) and on MariaDB and MySQL 5.7 (`INNODB_LOCK_WAITS`).
+  - **Slow query log:** the newest entries of `mysql.slow_log` when the server logs to a table. Otherwise the current settings and the statement that enables it.
+  - Nothing here is written to the SQL log, so polling doesn't flood it.
 - **Database tab**: all objects with rows, size, dates, engine, collation and comment.
 - **Table tab**: structure editor for columns, indexes, foreign keys and options. It shows live **CREATE / ALTER code** and saves with a single ALTER. Views, routines, triggers and events open in a code editor.
 - **Partition editor** (Table tab › Partitions): RANGE, RANGE COLUMNS, LIST, LIST COLUMNS, (LINEAR) HASH and (LINEAR) KEY, with a partition list (values, comments, row counts and sizes) or a partition count.
@@ -87,6 +92,10 @@ The backend is an ASP.NET Core app that talks to the database (via [MySqlConnect
 
 ![Server monitor with query, connection, network and row-operation charts](docs/server-monitor.png)
 
+**Locks & transactions**: who blocks whom, a metadata lock wait behind an idle transaction, open transactions and the latest deadlock.
+
+![Performance panel showing a row lock wait, a metadata lock wait, open transactions and the latest deadlock](docs/locks.png)
+
 ## Requirements
 
 - To build: [.NET 10 SDK](https://dotnet.microsoft.com/download)
@@ -116,9 +125,9 @@ Output goes to `dist/<runtime>/`, one self-contained file per platform (about 50
 | Suite | What it covers | Command |
 | --- | --- | --- |
 | C# unit tests | read-only guard, `SHOW GRANTS` parser, value formatting and quoting, encrypted session store, library file and backup, HTTP layer (token, static files, sessions, state, library), CSV/.xlsx reading, encoding and delimiter detection, type guessing, value conversion | `dotnet test` |
-| C# integration tests | browsing, data formatting, row edits, queries and cancel, dump plus re-import, read-only enforcement, user manager, partitions, table maintenance, server monitor sampling, session flags, SSH tunnels (password, keys, host key checks), CSV/Excel import (new and existing tables, duplicate-key modes, row-numbered errors, all-or-nothing rollback) | `dotnet test` with `ZAWSQL_TEST_HOST` set (see below) |
-| UI unit tests | SQL splitter, safety classifier, highlighter, partition SQL, user-manager SQL, grid export, monitor rates and axis scales, snippet expansion, library grouping and import, SQL formatter (layout, keyword case, comments, stored programs, round-trip safety), import column matching and validation | `cd tests/js && npm test` (Node 22+, no dependencies) |
-| End-to-end | real browser: session manager, grid editing, query tab and in-place result editing, WHERE-less DELETE guard, saved queries and snippets, SQL formatter, table editor, table maintenance, server monitor (charts, tooltips, table view), user manager, dark mode, CSV import wizard, SSH tunnel, no JS errors | `cd tests/e2e && npm ci && npx playwright install chromium && npx playwright test` |
+| C# integration tests | browsing, data formatting, row edits, queries and cancel, dump plus re-import, read-only enforcement, user manager, partitions, table maintenance, server monitor sampling, session flags, SSH tunnels (password, keys, host key checks), CSV/Excel import (new and existing tables, duplicate-key modes, row-numbered errors, all-or-nothing rollback), slow query and lock insight (digests, row and metadata lock waits, deadlocks, slow log table) | `dotnet test` with `ZAWSQL_TEST_HOST` set (see below) |
+| UI unit tests | SQL splitter, safety classifier, highlighter, partition SQL, user-manager SQL, grid export, monitor rates and axis scales, snippet expansion, library grouping and import, SQL formatter (layout, keyword case, comments, stored programs, round-trip safety), import column matching and validation, query statistics snapshots and lock summaries | `cd tests/js && npm test` (Node 22+, no dependencies) |
+| End-to-end | real browser: session manager, grid editing, query tab and in-place result editing, WHERE-less DELETE guard, saved queries and snippets, SQL formatter, table editor, table maintenance, server monitor (charts, tooltips, table view), user manager, dark mode, performance panel (top queries, killing a lock holder), CSV import wizard, SSH tunnel, no JS errors | `cd tests/e2e && npm ci && npx playwright install chromium && npx playwright test` |
 
 Integration and end-to-end tests need a MySQL or MariaDB server, configured with environment variables. The account needs full privileges; tests create and drop their own uniquely named databases and users.
 
@@ -187,6 +196,7 @@ src/ZawSQL/
   SqlDumper.cs          SQL export
   Importer.cs           CSV / .xlsx reading, type guessing, batched import jobs
   ServerMonitor.cs      status/variables/active-queries sample for the live monitor
+  Insight.cs            statement digests, slow log, lock waits, transactions, deadlocks
   SessionStore.cs       saved sessions, UI state and the query library (JSON)
   Heartbeat.cs          exits when the last window closes
   BrowserLauncher.cs    finds Chrome/Edge/Chromium and opens an --app window

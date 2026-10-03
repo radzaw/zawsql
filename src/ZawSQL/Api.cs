@@ -329,6 +329,20 @@ public static class Api
         s.MapGet("/monitor", (string sid, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, _, _) =>
             await ServerMonitor.SampleAsync(c, ct)));
 
+        // ---- slow query and lock insight (polled; not logged) ----
+        s.MapGet("/insight/queries", (string sid, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, _, _) =>
+            await Insight.TopQueriesAsync(c, ct)));
+        s.MapGet("/insight/slowlog", (string sid, int? limit, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, _, _) =>
+            await Insight.SlowLogAsync(c, limit ?? 500, ct)));
+        s.MapGet("/insight/locks", (string sid, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, _, _) =>
+            await Insight.LocksAsync(c, ct)));
+        s.MapPost("/insight/reset", (string sid, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, ses, log) =>
+        {
+            if (ses.Profile.ReadOnly) throw new ApiException(ReadOnlyMessage);
+            await Insight.ResetDigestsAsync(c, log, ct);
+            return null;
+        }));
+
         // ---- table maintenance ----
         s.MapPost("/maintenance", (string sid, MaintenanceRequest req, ConnectionManager cm, CancellationToken ct) => Run(async log =>
         {

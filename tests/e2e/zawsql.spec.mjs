@@ -250,6 +250,35 @@ test('server monitor shows live charts, tooltips and a table view', async () => 
   await page.locator('.host-view .subtab', { hasText: 'Databases' }).click();
 });
 
+test('performance: top queries, open transactions and killing a lock holder', async () => {
+  await page.locator('.tn.session').first().click();
+  await tab(/^Host/).click();
+  await page.locator('.host-view .subtab', { hasText: 'Performance' }).click();
+  const ins = page.locator('.ins');
+  await expect(ins.locator('.subtab.active')).toHaveText('Top queries');
+  // MySQL 8.4 has performance_schema on: earlier tests' statements are listed with their timings.
+  await expect(ins.locator('.ins-qgrid .gr').first()).toBeVisible();
+  // System statements (ZawSQL's own metadata queries) are hidden by default.
+  await expect(ins.locator('.ins-qgrid .gr', { hasText: 'information_schema' })).toHaveCount(0);
+  await ins.locator('.ins-qbar input[type=search]').fill('select customers'); // every term must match
+  const row = ins.locator('.ins-qgrid .gr', { hasText: 'FROM `customers`' }).first();
+  await row.click();
+  await expect(ins.locator('.ins-detail .ins-stat', { hasText: 'Executions' })).toBeVisible();
+  await expect(ins.locator('.ins-detail .ins-sql')).toContainText('customers');
+
+  // An idle transaction holding a row lock, from another connection.
+  await exec('START TRANSACTION', 'UPDATE customers SET name = name WHERE id = 1');
+  await ins.locator('.subtab', { hasText: 'Locks & transactions' }).click();
+  const trxRow = ins.locator('.ins-section', { hasText: 'Open transactions' }).locator('tbody tr', { hasText: schema });
+  await expect(trxRow).toHaveCount(1);
+  await expect(ins.locator('.ins-section', { hasText: 'Row lock waits' })).toContainText('No transaction is waiting');
+  await trxRow.getByRole('button', { name: 'Kill' }).click();
+  await btn('Kill').click();
+  await expect(trxRow).toHaveCount(0);
+  await ins.locator('.subtab', { hasText: 'Top queries' }).click();
+  await page.locator('.host-view .subtab', { hasText: 'Databases' }).click();
+});
+
 test('opens the user manager', async () => {
   await page.locator('.menubar-item', { hasText: 'Tools' }).click();
   await page.locator('.menu-item', { hasText: 'User manager' }).click();
