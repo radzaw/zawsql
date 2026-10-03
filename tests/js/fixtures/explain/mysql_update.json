@@ -1,0 +1,24 @@
+{
+  "query_block": {
+    "select_id": 1,
+    "table": {
+      "update": true,
+      "table_name": "orders",
+      "access_type": "range",
+      "possible_keys": [
+        "idx_customer"
+      ],
+      "key": "idx_customer",
+      "used_key_parts": [
+        "customer_id"
+      ],
+      "key_length": "5",
+      "ref": [
+        "const"
+      ],
+      "rows_examined_per_scan": 10,
+      "filtered": "100.00",
+      "attached_condition": "(`xp`.`orders`.`customer_id` = 3)"
+    }
+  }
+}

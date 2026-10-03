@@ -189,6 +189,38 @@ test('formats SQL with Ctrl+Shift+F; undo restores it', async () => {
   await page.locator('#tabbar .tab.active .tab-x').click();
 });
 
+test('visual EXPLAIN shows the plan, what to look at, and measured steps', async () => {
+  await page.locator('#tabbar .tab-add').click();
+  const ta = page.locator('.tab-pane.active .sqled-ta');
+  await ta.fill('SELECT 1;\n\nSELECT c.name, l.msg FROM customers c JOIN logs l ON l.msg = c.name ORDER BY c.name;');
+  await ta.evaluate(el => el.setSelectionRange(el.value.length - 5, el.value.length - 5)); // cursor in the second statement
+  await ta.press('Control+Shift+E');
+  const xp = page.locator('.tab-pane.active .xp');
+  await expect(page.locator('.tab-pane.active .res-tab.res-plan')).toHaveClass(/active/);
+  await expect(xp.locator('.xp-card.xp-table')).toHaveCount(2);
+  expect((await xp.locator('.xp-card.xp-table .xp-name').allTextContents()).sort()).toEqual(['c', 'l']); // plans name tables by alias
+  // logs has no index on msg: the join can't use one.
+  await expect(xp.locator('.xp-issues')).toContainText('joined without an index');
+  await expect(xp.locator('.xp-caption')).toContainText('Estimated plan · 2 tables');
+
+  await xp.locator('.subtab', { hasText: 'Table' }).click();
+  await expect(xp.locator('.xp-grid .gr')).toHaveCount(2);
+  await xp.locator('.subtab', { hasText: 'JSON' }).click();
+  await expect(xp.locator('.xp-json')).toContainText('"query_block"');
+
+  await xp.getByRole('button', { name: 'Analyze (runs it)' }).click();
+  await expect(xp.locator('.xp-caption')).toContainText('Measured plan');
+  await expect(xp.locator('.subtab.active')).toHaveText('Measured');
+  await expect(xp.locator('.xp-steps tbody tr').first()).toBeVisible();
+
+  // Running a query keeps the plan one click away.
+  await ta.press('F9');
+  await expect(page.locator('.tab-pane.active .res-tab').first()).toHaveClass(/active/);
+  await page.locator('.tab-pane.active .res-tab.res-plan').click();
+  await expect(xp).toBeVisible();
+  await page.locator('#tabbar .tab.active .tab-x').click();
+});
+
 test('table editor generates ALTER code', async () => {
   await treeNode('customers').click();
   await tab(/^Table/).click();

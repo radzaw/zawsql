@@ -229,7 +229,7 @@ export class InsightView {
         x.flags.map(f => tag('warning', f)),
         h('div', { class: 'grow' }),
         h('button', { class: 'btn', onclick: () => this.openRow(x) }, 'Open in query tab'),
-        h('button', { class: 'btn', disabled: !x.sample, title: x.sample ? 'EXPLAIN the example in a query tab' : 'The server keeps no example with real values (MySQL 8.0.3+ does)', onclick: () => this.openRow(x, true) }, 'EXPLAIN'),
+        h('button', { class: 'btn', disabled: !x.sample, title: x.sample ? 'Visual EXPLAIN of the example, in a query tab' : 'The server keeps no example with real values (MySQL 8.0.3+ does)', onclick: () => this.openRow(x, true) }, 'EXPLAIN'),
         h('button', { class: 'btn', onclick: () => navigator.clipboard.writeText(x.sample || x.text) }, 'Copy')),
       h('div', { class: 'ins-detail-body' }, code, h('div', { class: 'ins-stats' },
         stat('Executions', fmtNum(x.count)), stat('Total time', fmtMs(x.totalMs)), stat('Average', fmtMs(x.avgMs)), stat('Slowest', fmtMs(x.maxMs)),
@@ -238,12 +238,11 @@ export class InsightView {
         stat('Errors / warnings', `${fmtNum(x.errors)} / ${fmtNum(x.warnings)}`), stat('First seen', x.firstSeen ?? '–'))));
   }
 
-  openRow(x, explain = false) {
+  async openRow(x, explain = false) {
     if (!x) return;
-    const sql = querySql(x, { explain });
-    const v = this.app.openQueryTab(explain ? sql : pretty(sql), explain ? 'EXPLAIN' : 'Top query');
-    if (x.schema && x.schema !== this.app.sel.db) this.app.selectDatabase(this.sid, x.schema, { quiet: true }).catch(() => {});
-    if (explain) v.run('all');
+    const v = this.app.openQueryTab(pretty(querySql(x)), explain ? 'Explain' : 'Top query');
+    if (x.schema && x.schema !== this.app.sel.db) await this.app.selectDatabase(this.sid, x.schema, { quiet: true }).catch(() => {});
+    if (explain) v.explain({ sql: querySql(x) }); // Visual EXPLAIN of the example
   }
 
   // ---------------------------------------------------------------- locks

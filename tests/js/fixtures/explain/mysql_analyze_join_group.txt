@@ -1,0 +1,9 @@
+-> Limit: 10 row(s)  (actual time=5.32..5.32 rows=10 loops=1)
+    -> Sort: s DESC, limit input to 10 row(s) per chunk  (actual time=5.32..5.32 rows=10 loops=1)
+        -> Table scan on <temporary>  (actual time=5.22..5.26 rows=375 loops=1)
+            -> Aggregate using temporary table  (actual time=5.22..5.22 rows=375 loops=1)
+                -> Nested loop inner join  (cost=679 rows=500) (actual time=0.072..3.86 rows=3750 loops=1)
+                    -> Filter: ((o.`status` = 'paid') and (o.customer_id is not null))  (cost=504 rows=500) (actual time=0.0579..1.29 rows=3750 loops=1)
+                        -> Table scan on o  (cost=504 rows=5000) (actual time=0.0564..0.754 rows=5000 loops=1)
+                    -> Single-row index lookup on c using PRIMARY (id=o.customer_id)  (cost=0.25 rows=1) (actual time=547e-6..571e-6 rows=1 loops=3750)
+

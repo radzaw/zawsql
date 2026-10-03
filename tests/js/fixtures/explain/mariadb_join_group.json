@@ -1,0 +1,40 @@
+{
+  "query_block": {
+    "select_id": 1,
+    "cost": 5.3133344,
+    "filesort": {
+      "sort_key": "sum(o.total) desc",
+      "temporary_table": {
+        "nested_loop": [
+          {
+            "table": {
+              "table_name": "o",
+              "access_type": "ALL",
+              "possible_keys": ["idx_customer"],
+              "loops": 1,
+              "rows": 5000,
+              "cost": 0.8386768,
+              "filtered": 100,
+              "attached_condition": "o.`status` = 'paid' and o.customer_id is not null"
+            }
+          },
+          {
+            "table": {
+              "table_name": "c",
+              "access_type": "eq_ref",
+              "possible_keys": ["PRIMARY"],
+              "key": "PRIMARY",
+              "key_length": "4",
+              "used_key_parts": ["id"],
+              "ref": ["xp.o.customer_id"],
+              "loops": 5000,
+              "rows": 1,
+              "cost": 4.4746576,
+              "filtered": 100
+            }
+          }
+        ]
+      }
+    }
+  }
+}

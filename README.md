@@ -43,6 +43,12 @@ The backend is an ASP.NET Core app that talks to the database (via [MySqlConnect
 - **Data tab**: virtualized grid with paging, sorting, WHERE filter, quick search and quick filters. You can edit in place (enum dropdowns, multi-line editor), insert, delete and set NULL. It works on tables without a primary key too.
 - **Query tabs**: SQL editor with syntax highlighting, line numbers and autocompletion (tables, columns incl. aliases, keywords, functions). Run all, the selection or the current statement. Supports `DELIMITER` and multiple result sets, has a Stop button and query history. Tabs are restored on the next start.
 - **Editable query results**: when a result's table columns all come from one table and include its primary/unique key, you can edit, insert and delete rows right in the result grid (aliased columns work too; computed columns stay read-only). The header shows "Editable: db.table", or "Read-only" with the reason as a tooltip.
+- **Visual EXPLAIN** (the Explain button in a query tab, Ctrl+Shift+E, or Query › Explain current statement): explains the statement at the cursor and shows the plan in a **Plan** tab next to the results.
+  - **What to look at first:** full table scans (with whether an index exists but isn't used), full index scans, joins without an index (hash join / block nested loop), rows read and then mostly thrown away, filesorts, temporary tables, dependent subqueries that run once per outer row, and, after Analyze, row estimates that were far off (stale statistics). Click a finding to jump to the step.
+  - **Diagram:** every SELECT, operation (join, sort, group, distinct, union) and table as a card. Each table card shows its access type in words and colour (*Unique key lookup*, *Index range scan*, *Full table scan* …), the index used (or the ones it could have used), what it is matched on, rows per scan and how many are kept, its share of the estimated cost, and its condition. Derived tables and subqueries are nested where they belong.
+  - **Analyze (runs it)**, for SELECT statements only: MariaDB's `ANALYZE FORMAT=JSON` adds actual rows, loops and time to the diagram. MySQL's `EXPLAIN ANALYZE` becomes a **Measured** view of every step with its time, estimated vs. actual rows and loops.
+  - **Table** (classic EXPLAIN), **JSON** (the raw plan) and the optimizer's notes, including the query as MySQL rewrote it.
+  - Runs on the session's own connection, so temporary tables and session variables count. Works with MySQL and MariaDB, whose plan formats differ; the Performance panel's EXPLAIN button opens a top query's example here.
 - **SQL formatter** (Ctrl+Shift+F, the Format button in query tabs and in the view/routine code editor, or Query › Format SQL): formats the selection, or the whole editor when nothing is selected.
   - **Layout:** one clause per line; select lists and `SET`/`ORDER BY` lists on one line when they fit, else one item per line. Joins are indented with their `ON` conditions, and `WHERE`/`HAVING` conditions go one per line (the `AND` of `BETWEEN` excepted). Subqueries, CTEs and derived tables become indented blocks, and long `CASE` expressions are laid out.
   - **DDL and stored programs:** `CREATE TABLE` gets one definition per line and `ALTER TABLE` one change per line. Procedures, functions, triggers and events are laid out by block (`BEGIN … END`, `IF / ELSEIF / ELSE`, `CASE`, `LOOP`, `WHILE`, `REPEAT`, labels, handlers), with or without `DELIMITER`.
@@ -88,6 +94,10 @@ The backend is an ASP.NET Core app that talks to the database (via [MySqlConnect
 
 ![Import wizard previewing a semicolon-separated CSV file](docs/import-wizard.png)
 
+**Visual EXPLAIN**: what to look at first, and the plan as a diagram with access types, indexes, rows and cost shares.
+
+![Visual EXPLAIN of a join with a dependent subquery](docs/explain.png)
+
 **Server monitor**: live load charts with a hover tooltip, headline tiles and a table view.
 
 ![Server monitor with query, connection, network and row-operation charts](docs/server-monitor.png)
@@ -125,9 +135,9 @@ Output goes to `dist/<runtime>/`, one self-contained file per platform (about 50
 | Suite | What it covers | Command |
 | --- | --- | --- |
 | C# unit tests | read-only guard, `SHOW GRANTS` parser, value formatting and quoting, encrypted session store, library file and backup, HTTP layer (token, static files, sessions, state, library), CSV/.xlsx reading, encoding and delimiter detection, type guessing, value conversion | `dotnet test` |
-| C# integration tests | browsing, data formatting, row edits, queries and cancel, dump plus re-import, read-only enforcement, user manager, partitions, table maintenance, server monitor sampling, session flags, SSH tunnels (password, keys, host key checks), CSV/Excel import (new and existing tables, duplicate-key modes, row-numbered errors, all-or-nothing rollback), slow query and lock insight (digests, row and metadata lock waits, deadlocks, slow log table) | `dotnet test` with `ZAWSQL_TEST_HOST` set (see below) |
-| UI unit tests | SQL splitter, safety classifier, highlighter, partition SQL, user-manager SQL, grid export, monitor rates and axis scales, snippet expansion, library grouping and import, SQL formatter (layout, keyword case, comments, stored programs, round-trip safety), import column matching and validation, query statistics snapshots and lock summaries | `cd tests/js && npm test` (Node 22+, no dependencies) |
-| End-to-end | real browser: session manager, grid editing, query tab and in-place result editing, WHERE-less DELETE guard, saved queries and snippets, SQL formatter, table editor, table maintenance, server monitor (charts, tooltips, table view), user manager, dark mode, performance panel (top queries, killing a lock holder), CSV import wizard, SSH tunnel, no JS errors | `cd tests/e2e && npm ci && npx playwright install chromium && npx playwright test` |
+| C# integration tests | browsing, data formatting, row edits, queries and cancel, dump plus re-import, read-only enforcement, user manager, partitions, table maintenance, server monitor sampling, session flags, SSH tunnels (password, keys, host key checks), CSV/Excel import (new and existing tables, duplicate-key modes, row-numbered errors, all-or-nothing rollback), slow query and lock insight (digests, row and metadata lock waits, deadlocks, slow log table), Visual EXPLAIN (JSON plan, tabular EXPLAIN, ANALYZE, read-only rules) | `dotnet test` with `ZAWSQL_TEST_HOST` set (see below) |
+| UI unit tests | SQL splitter, safety classifier, highlighter, partition SQL, user-manager SQL, grid export, monitor rates and axis scales, snippet expansion, library grouping and import, SQL formatter (layout, keyword case, comments, stored programs, round-trip safety), import column matching and validation, query statistics snapshots and lock summaries, EXPLAIN plan parsing for MySQL and MariaDB (from real captured plans) and EXPLAIN ANALYZE trees | `cd tests/js && npm test` (Node 22+, no dependencies) |
+| End-to-end | real browser: session manager, grid editing, query tab and in-place result editing, WHERE-less DELETE guard, saved queries and snippets, SQL formatter, Visual EXPLAIN, table editor, table maintenance, server monitor (charts, tooltips, table view), user manager, dark mode, performance panel (top queries, killing a lock holder), CSV import wizard, SSH tunnel, no JS errors | `cd tests/e2e && npm ci && npx playwright install chromium && npx playwright test` |
 
 Integration and end-to-end tests need a MySQL or MariaDB server, configured with environment variables. The account needs full privileges; tests create and drop their own uniquely named databases and users.
 
@@ -170,6 +180,7 @@ Configuration is stored in `%APPDATA%\ZawSQL` on Windows and `~/.config/ZawSQL` 
 | Ctrl+Space | Autocomplete (also opens after typing `.`) |
 | Ctrl+/ | Toggle comment |
 | Ctrl+T | New query tab |
+| Ctrl+Shift+E | Visual EXPLAIN of the statement at the cursor |
 | Ctrl+Shift+F | Format SQL (the selection, or everything) |
 | Ctrl+S / Ctrl+Shift+S | Save query to the library / save as a new query |
 | Tab after a snippet trigger | Expand the snippet; then Tab / Shift+Tab move between its fields, Esc finishes |
@@ -197,6 +208,7 @@ src/ZawSQL/
   Importer.cs           CSV / .xlsx reading, type guessing, batched import jobs
   ServerMonitor.cs      status/variables/active-queries sample for the live monitor
   Insight.cs            statement digests, slow log, lock waits, transactions, deadlocks
+  Explainer.cs          EXPLAIN FORMAT=JSON / ANALYZE for Visual EXPLAIN
   SessionStore.cs       saved sessions, UI state and the query library (JSON)
   Heartbeat.cs          exits when the last window closes
   BrowserLauncher.cs    finds Chrome/Edge/Chromium and opens an --app window

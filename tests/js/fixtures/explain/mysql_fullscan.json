@@ -1,0 +1,29 @@
+{
+  "query_block": {
+    "select_id": 1,
+    "cost_info": {
+      "query_cost": "504.00"
+    },
+    "table": {
+      "table_name": "orders",
+      "access_type": "ALL",
+      "rows_examined_per_scan": 5000,
+      "rows_produced_per_join": 1666,
+      "filtered": "33.33",
+      "cost_info": {
+        "read_cost": "337.35",
+        "eval_cost": "166.65",
+        "prefix_cost": "504.00",
+        "data_read_per_join": "234K"
+      },
+      "used_columns": [
+        "id",
+        "customer_id",
+        "product_code",
+        "status",
+        "total"
+      ],
+      "attached_condition": "(`xp`.`orders`.`total` > 90.00)"
+    }
+  }
+}

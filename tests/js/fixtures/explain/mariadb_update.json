@@ -1,0 +1,16 @@
+{
+  "query_block": {
+    "select_id": 1,
+    "table": {
+      "update": 1,
+      "table_name": "orders",
+      "access_type": "range",
+      "possible_keys": ["idx_customer"],
+      "key": "idx_customer",
+      "key_length": "5",
+      "used_key_parts": ["customer_id"],
+      "rows": 10,
+      "attached_condition": "orders.customer_id = 3"
+    }
+  }
+}

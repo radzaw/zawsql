@@ -1,0 +1,43 @@
+{
+  "query_block": {
+    "select_id": 1,
+    "cost_info": {
+      "query_cost": "304.76"
+    },
+    "ordering_operation": {
+      "using_filesort": true,
+      "cost_info": {
+        "sort_cost": "210.00"
+      },
+      "table": {
+        "table_name": "orders",
+        "access_type": "range",
+        "possible_keys": [
+          "idx_customer"
+        ],
+        "key": "idx_customer",
+        "used_key_parts": [
+          "customer_id"
+        ],
+        "key_length": "5",
+        "rows_examined_per_scan": 210,
+        "rows_produced_per_join": 210,
+        "filtered": "100.00",
+        "index_condition": "(`xp`.`orders`.`customer_id` between 20 and 40)",
+        "cost_info": {
+          "read_cost": "73.76",
+          "eval_cost": "21.00",
+          "prefix_cost": "94.76",
+          "data_read_per_join": "29K"
+        },
+        "used_columns": [
+          "id",
+          "customer_id",
+          "product_code",
+          "status",
+          "total"
+        ]
+      }
+    }
+  }
+}

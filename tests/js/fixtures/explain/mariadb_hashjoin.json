@@ -1,0 +1,35 @@
+{
+  "query_block": {
+    "select_id": 1,
+    "cost": 93.7603048,
+    "nested_loop": [
+      {
+        "table": {
+          "table_name": "p",
+          "access_type": "ALL",
+          "loops": 1,
+          "rows": 200,
+          "cost": 0.0434548,
+          "filtered": 100
+        }
+      },
+      {
+        "block-nl-join": {
+          "table": {
+            "table_name": "o",
+            "access_type": "ALL",
+            "loops": 200,
+            "rows": 5000,
+            "cost": 93.71685,
+            "filtered": 100,
+            "attached_condition": "o.total > 50"
+          },
+          "buffer_type": "flat",
+          "buffer_size": "56KiB",
+          "join_type": "BNL",
+          "attached_condition": "o.product_code = p.`code`"
+        }
+      }
+    ]
+  }
+}

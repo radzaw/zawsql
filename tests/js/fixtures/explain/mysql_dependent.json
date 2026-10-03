@@ -1,0 +1,68 @@
+{
+  "query_block": {
+    "select_id": 1,
+    "cost_info": {
+      "query_cost": "50.75"
+    },
+    "table": {
+      "table_name": "c",
+      "access_type": "ALL",
+      "rows_examined_per_scan": 500,
+      "rows_produced_per_join": 500,
+      "filtered": "100.00",
+      "cost_info": {
+        "read_cost": "0.75",
+        "eval_cost": "50.00",
+        "prefix_cost": "50.75",
+        "data_read_per_join": "105K"
+      },
+      "used_columns": [
+        "id",
+        "name",
+        "country"
+      ],
+      "attached_condition": "((/* select#2 */ select count(0) from `xp`.`orders` `o` where ((`xp`.`o`.`customer_id` = `xp`.`c`.`id`) and (`xp`.`o`.`total` > (`xp`.`c`.`id` % 50)))) > 5)",
+      "attached_subqueries": [
+        {
+          "dependent": true,
+          "cacheable": false,
+          "query_block": {
+            "select_id": 2,
+            "cost_info": {
+              "query_cost": "3.50"
+            },
+            "table": {
+              "table_name": "o",
+              "access_type": "ref",
+              "possible_keys": [
+                "idx_customer"
+              ],
+              "key": "idx_customer",
+              "used_key_parts": [
+                "customer_id"
+              ],
+              "key_length": "5",
+              "ref": [
+                "xp.c.id"
+              ],
+              "rows_examined_per_scan": 10,
+              "rows_produced_per_join": 3,
+              "filtered": "33.33",
+              "cost_info": {
+                "read_cost": "2.50",
+                "eval_cost": "0.33",
+                "prefix_cost": "3.50",
+                "data_read_per_join": "479"
+              },
+              "used_columns": [
+                "customer_id",
+                "total"
+              ],
+              "attached_condition": "(`xp`.`o`.`total` > (`xp`.`c`.`id` % 50))"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,72 @@
+{
+  "query_block": {
+    "select_id": 1,
+    "cost_info": {
+      "query_cost": "679.00"
+    },
+    "ordering_operation": {
+      "using_filesort": true,
+      "grouping_operation": {
+        "using_temporary_table": true,
+        "using_filesort": false,
+        "nested_loop": [
+          {
+            "table": {
+              "table_name": "o",
+              "access_type": "ALL",
+              "possible_keys": [
+                "idx_customer"
+              ],
+              "rows_examined_per_scan": 5000,
+              "rows_produced_per_join": 500,
+              "filtered": "10.00",
+              "cost_info": {
+                "read_cost": "454.00",
+                "eval_cost": "50.00",
+                "prefix_cost": "504.00",
+                "data_read_per_join": "70K"
+              },
+              "used_columns": [
+                "id",
+                "customer_id",
+                "status",
+                "total"
+              ],
+              "attached_condition": "((`xp`.`o`.`status` = 'paid') and (`xp`.`o`.`customer_id` is not null))"
+            }
+          },
+          {
+            "table": {
+              "table_name": "c",
+              "access_type": "eq_ref",
+              "possible_keys": [
+                "PRIMARY"
+              ],
+              "key": "PRIMARY",
+              "used_key_parts": [
+                "id"
+              ],
+              "key_length": "4",
+              "ref": [
+                "xp.o.customer_id"
+              ],
+              "rows_examined_per_scan": 1,
+              "rows_produced_per_join": 500,
+              "filtered": "100.00",
+              "cost_info": {
+                "read_cost": "125.00",
+                "eval_cost": "50.00",
+                "prefix_cost": "679.00",
+                "data_read_per_join": "105K"
+              },
+              "used_columns": [
+                "id",
+                "name"
+              ]
+            }
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "query_block": {
+    "select_id": 1,
+    "cost": 0.0940644,
+    "nested_loop": [
+      {
+        "table": {
+          "table_name": "c",
+          "access_type": "ALL",
+          "loops": 1,
+          "rows": 500,
+          "cost": 0.0940644,
+          "filtered": 100,
+          "attached_condition": "(subquery#2) > 5"
+        }
+      }
+    ],
+    "subqueries": [
+      {
+        "subquery_cache": {
+          "state": "uninitialized",
+          "query_block": {
+            "select_id": 2,
+            "cost": 0.01977232,
+            "nested_loop": [
+              {
+                "table": {
+                  "table_name": "o",
+                  "access_type": "ref",
+                  "possible_keys": ["idx_customer"],
+                  "key": "idx_customer",
+                  "key_length": "5",
+                  "used_key_parts": ["customer_id"],
+                  "ref": ["xp.c.id"],
+                  "loops": 1,
+                  "rows": 10,
+                  "cost": 0.01977232,
+                  "filtered": 100,
+                  "attached_condition": "o.total > c.`id` MOD 50"
+                }
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

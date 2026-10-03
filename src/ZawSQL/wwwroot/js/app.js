@@ -282,6 +282,7 @@ class App {
         { label: 'Stop', icon: 'stop', disabled: !s.sid, onClick: () => this.activeQuery()?.stop() },
         '-',
         { label: 'Query history…', icon: 'history', onClick: () => this.queryForRun()?.showHistory() },
+        { label: 'Explain current statement', icon: 'explain', shortcut: 'Ctrl+Shift+E', disabled: !s.sid, onClick: () => this.queryForRun()?.explain() },
         { label: 'Format SQL', icon: 'format', shortcut: 'Ctrl+Shift+F', onClick: () => { const v = this.queryForRun(); if (v) this.formatEditor(v.editor); } },
         '-',
         { label: 'Save to library…', icon: 'bookmark', shortcut: 'Ctrl+S', onClick: () => this.queryForRun()?.saveToLibrary() },
@@ -365,7 +366,7 @@ class App {
       ['F5', 'Refresh tree / current tab'], ['F9', 'Execute all SQL in the query tab'], ['Ctrl+F9', 'Execute selection'],
       ['Ctrl+Shift+F9 / Ctrl+Enter', 'Execute statement at the caret'], ['Ctrl+Space', 'Autocomplete'], ['Ctrl+/', 'Toggle line comment'],
       ['Tab / Shift+Tab', 'Indent / outdent'], ['Tab after a trigger', 'Expand snippet (then Tab: next field)'],
-      ['Ctrl+Shift+F', 'Format SQL (selection or all)'], ['Ctrl+S', 'Save query to library'], ['Ctrl+Shift+S', 'Save query to library as new'], ['Ctrl+T', 'New query tab'], ['F2 / Enter / typing', 'Edit grid cell'],
+      ['Ctrl+Shift+E', 'Visual EXPLAIN of the statement at the cursor'], ['Ctrl+Shift+F', 'Format SQL (selection or all)'], ['Ctrl+S', 'Save query to library'], ['Ctrl+Shift+S', 'Save query to library as new'], ['Ctrl+T', 'New query tab'], ['F2 / Enter / typing', 'Edit grid cell'],
       ['Ctrl+Enter', 'Apply multi-line cell edit'], ['Insert', 'Insert row'], ['Ctrl+Delete', 'Delete selected rows'],
       ['Ctrl+Shift+N', 'Set cell to NULL'], ['Esc', 'Cancel editing'], ['Ctrl+C', 'Copy selected cells'],
     ];

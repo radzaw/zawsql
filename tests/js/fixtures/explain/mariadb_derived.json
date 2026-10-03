@@ -1,0 +1,43 @@
+{
+  "query_block": {
+    "select_id": 1,
+    "cost": 0.0323423,
+    "nested_loop": [
+      {
+        "table": {
+          "table_name": "<derived2>",
+          "access_type": "ALL",
+          "loops": 1,
+          "rows": 500,
+          "cost": 0.0323423,
+          "filtered": 100,
+          "attached_condition": "x.s > 1000",
+          "materialized": {
+            "query_block": {
+              "select_id": 2,
+              "cost": 4.142257436,
+              "having_condition": "s > 1000",
+              "filesort": {
+                "sort_key": "orders.customer_id",
+                "temporary_table": {
+                  "nested_loop": [
+                    {
+                      "table": {
+                        "table_name": "orders",
+                        "access_type": "ALL",
+                        "loops": 1,
+                        "rows": 5000,
+                        "cost": 0.8386768,
+                        "filtered": 100
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    ]
+  }
+}

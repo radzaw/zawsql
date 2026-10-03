@@ -291,6 +291,20 @@ public static class Api
             return new { resultSets = sets, statements = req.Statements.Length, executed, affected, insertId, errors, database = currentDb, ms };
         }));
 
+        // Visual EXPLAIN on the session's own connection, so temporary tables and variables are visible.
+        s.MapPost("/explain", (string sid, ExplainRequest req, ConnectionManager cm, CancellationToken ct) => Run(async log =>
+        {
+            var ses = cm.Get(sid);
+            await using var lease = await ses.AcquireAsync(ct);
+            var c = await cm.EnsureMainAsync(ses, log, ct);
+            if (!string.IsNullOrEmpty(req.Database) && c.Database != req.Database)
+            {
+                log.Add("USE " + Db.Q(req.Database));
+                await c.ChangeDatabaseAsync(req.Database, ct);
+            }
+            return await Explainer.ExplainAsync(c, log, req.Sql, req.Analyze, ct);
+        }));
+
         s.MapPost("/cancel", (string sid, ConnectionManager cm) => RunSync(() =>
         {
             cm.Get(sid).Running?.Cancel();

@@ -41,6 +41,7 @@ const P = {
   history: '<circle cx="8.5" cy="8" r="5.5" fill="#fff" stroke="#555"/><path d="M8.5 5v3.3l2.2 1.4" fill="none" stroke="#555" stroke-width="1.3"/><path d="M1.5 6.5 3 9l2-2.2" fill="none" stroke="#2f72b5" stroke-width="1.3"/>',
   bookmark: '<path d="M4 1.5h8v13l-4-3.2-4 3.2z" fill="#f2b632" stroke="#a5761a" stroke-linejoin="round"/>',
   snippet: '<rect x="1.5" y="2.5" width="13" height="11" rx="1.5" fill="#e3f0fb" stroke="#2f72b5"/><path d="M5.5 5.5 3.3 8l2.2 2.5M10.5 5.5 12.7 8l-2.2 2.5" fill="none" stroke="#2f72b5" stroke-width="1.3" stroke-linejoin="round"/><path d="M8.8 5 7.2 11" stroke="#2f72b5" stroke-width="1.1"/>',
+  explain: '<rect x="5.5" y="1.5" width="5" height="3.5" rx=".6" fill="#e3f0fb" stroke="#2f72b5"/><rect x="1.5" y="11" width="5" height="3.5" rx=".6" fill="#e6f4e8" stroke="#3c8a4a"/><rect x="9.5" y="11" width="5" height="3.5" rx=".6" fill="#fde9e7" stroke="#c0392b"/><path d="M8 5v3M4 11V8h8v3" fill="none" stroke="#666"/>',
   library: '<rect x="1.5" y="2" width="3" height="12" fill="#6d9ad8" stroke="#3a6ab0"/><rect x="5.5" y="2" width="3" height="12" fill="#f2b632" stroke="#a5761a"/><path d="m9.6 3.2 2.9-.8 2.9 11-2.9.8z" fill="#7cc18a" stroke="#3c8a4a" stroke-linejoin="round"/>',
   folder: '<path d="M1.5 3.5h4.5l1.2 1.5h7.3v8.5h-13z" fill="#f2cf63" stroke="#a5852a" stroke-linejoin="round"/>',
   copy: '<rect x="5" y="5" width="8.5" height="9" fill="#fff" stroke="#666"/><path d="M3 11V2.5h7.5" fill="none" stroke="#666"/>',

@@ -1,0 +1,51 @@
+{
+  "query_block": {
+    "select_id": 1,
+    "cost_info": {
+      "query_cost": "33760.44"
+    },
+    "nested_loop": [
+      {
+        "table": {
+          "table_name": "p",
+          "access_type": "ALL",
+          "rows_examined_per_scan": 200,
+          "rows_produced_per_join": 200,
+          "filtered": "100.00",
+          "cost_info": {
+            "read_cost": "0.25",
+            "eval_cost": "20.00",
+            "prefix_cost": "20.25",
+            "data_read_per_join": "56K"
+          },
+          "used_columns": [
+            "code",
+            "title"
+          ]
+        }
+      },
+      {
+        "table": {
+          "table_name": "o",
+          "access_type": "ALL",
+          "rows_examined_per_scan": 5000,
+          "rows_produced_per_join": 33330,
+          "filtered": "3.33",
+          "using_join_buffer": "hash join",
+          "cost_info": {
+            "read_cost": "410.19",
+            "eval_cost": "3333.00",
+            "prefix_cost": "33760.44",
+            "data_read_per_join": "4M"
+          },
+          "used_columns": [
+            "id",
+            "product_code",
+            "total"
+          ],
+          "attached_condition": "((`xp`.`o`.`product_code` = `xp`.`p`.`code`) and (`xp`.`o`.`total` > 50.00))"
+        }
+      }
+    ]
+  }
+}

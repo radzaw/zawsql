@@ -10,6 +10,7 @@ import { contextMenu, modal } from '../dialogs.js';
 import { exportGridDialog } from './tools.js';
 import { attachLibraryPanel, editQueryDialog } from './library.js';
 import { findSnippet } from '../library.js';
+import { ExplainView } from './explain.js';
 
 const DDL_RE = /^\s*(?:\/\*.*?\*\/\s*)*(create|drop|alter|rename|truncate)\b/is;
 
@@ -44,6 +45,7 @@ export class QueryView {
       btn('bookmark', '', 'Save to library (Ctrl+S)', () => this.saveToLibrary()),
       (this.libBtn = btn('library', '', 'Saved queries and snippets', () => app.toggleLibrary())),
       btn('format', '', 'Format SQL – the selection, or everything (Ctrl+Shift+F)', () => app.formatEditor(this.editor)),
+      btn('explain', 'Explain', 'Visual EXPLAIN of the statement at the cursor (Ctrl+Shift+E)', () => this.explain()),
       h('div', { class: 'grow' }), this.dbLabel);
 
     this.edWrap = h('div', { class: 'q-editor' }, this.editor.el);
@@ -78,7 +80,10 @@ export class QueryView {
       onRowsChanged: () => { if (this.sets[this.active]) this.sets[this.active].rows = this.rows.slice(); },
     });
     this.msg = h('div', { class: 'q-msg' });
-    this.results = h('div', { class: 'q-results' }, this.resTabs, this.grid.el, this.msg);
+    this.plan = null;
+    this.planView = new ExplainView({ onAnalyze: () => this.explain({ analyze: true, sql: this.plan?.statement }) });
+    this.planView.el.style.display = 'none';
+    this.results = h('div', { class: 'q-results' }, this.resTabs, this.grid.el, this.planView.el, this.msg);
     this.body = h('div', { class: 'q-body' }, h('div', { class: 'q-main' }, this.edWrap, split, this.results));
     this.el = h('div', { class: 'view query-view' }, toolbar, this.body);
     this.offLibrary = app.library.onChange(() => this.onLibraryChange());
@@ -88,6 +93,9 @@ export class QueryView {
       if (e.key === 'F9') {
         e.preventDefault();
         this.run(e.ctrlKey && e.shiftKey ? 'current' : e.ctrlKey ? 'selection' : 'all');
+      } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
+        e.preventDefault();
+        this.explain();
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's' && !e.altKey) {
         e.preventDefault();
         e.stopPropagation();
@@ -252,17 +260,12 @@ export class QueryView {
     this.sets = r.resultSets;
     this.active = 0;
     this.sort = null;
-    this.resTabList.replaceChildren(...this.sets.map((s, i) => {
-      const b = h('button', { class: 'res-tab' + (i === 0 ? ' active' : ''), title: s.sql },
-        `Result #${i + 1} (${fmtNum(s.rows.length)}${s.truncated ? '+' : ''}r × ${s.columns.length}c)`);
-      b.addEventListener('click', () => this.showSet(i));
-      return b;
-    }));
-    this.resTabs.style.display = this.sets.length ? '' : 'none';
+    this.renderResTabs();
     if (this.sets.length) this.showSet(0);
     else {
       this.resetEditing();
       this.grid.setData([], []);
+      if (this.plan) this.showPlan();
     }
     const last = this.sets[this.sets.length - 1];
     const parts = [];
@@ -274,10 +277,67 @@ export class QueryView {
     this.msg.textContent = (r.errors.length ? `Error: ${r.errors[0].message}   ` : '') + parts.join('   ');
   }
 
+  /** Result set tabs, plus a "Plan" tab once a statement has been explained. */
+  renderResTabs() {
+    const tabs = this.sets.map((s, i) => {
+      const b = h('button', { class: 'res-tab', title: s.sql, 'data-i': i },
+        `Result #${i + 1} (${fmtNum(s.rows.length)}${s.truncated ? '+' : ''}r × ${s.columns.length}c)`);
+      b.addEventListener('click', () => this.showSet(i));
+      return b;
+    });
+    if (this.plan) {
+      const b = h('button', { class: 'res-tab res-plan', title: this.plan.statement, html: icon('explain') + '<span>Plan</span>' });
+      b.addEventListener('click', () => this.showPlan());
+      tabs.push(b);
+    }
+    this.resTabList.replaceChildren(...tabs);
+    this.resTabs.style.display = tabs.length ? '' : 'none';
+  }
+
+  showPlan() {
+    this.planShown = true;
+    for (const b of this.resTabList.children) b.classList.toggle('active', b.classList.contains('res-plan'));
+    this.grid.el.style.display = 'none';
+    this.editInfo.style.display = 'none';
+    this.planView.el.style.display = '';
+  }
+
+  /** Visual EXPLAIN of the statement at the cursor (or the selection); `sql` explains that text instead. */
+  async explain({ analyze = false, sql = null } = {}) {
+    const { sid, db } = this.app.sel;
+    if (!sid) return this.app.showError(new Error('Not connected. Open a session first.'));
+    if (sql == null) {
+      const sel = this.editor.selection();
+      const stmts = splitSql(sel.start === sel.end ? this.editor.value : sel.text);
+      const st = sel.start === sel.end ? statementAt(stmts, sel.start) : stmts[0];
+      if (!st) return this.app.showError(new Error('Put the cursor in the statement to explain.'));
+      sql = st.sql;
+    }
+    const t0 = Date.now();
+    this.msg.className = 'q-msg';
+    this.msg.textContent = analyze ? 'Running the statement to measure it…' : 'Explaining…';
+    try {
+      const r = await post(`/s/${sid}/explain`, { sql, database: db, analyze });
+      this.plan = r;
+      this.planView.show(r);
+      this.renderResTabs();
+      this.showPlan();
+      this.msg.textContent = `${analyze ? 'Analyzed' : 'Explained'} in ${fmtSecs(Date.now() - t0)}.`;
+    } catch (e) {
+      this.msg.className = 'q-msg err';
+      this.msg.textContent = e.message;
+      this.app.showError(e);
+    }
+  }
+
   showSet(i) {
     this.active = i;
     this.sort = null;
-    [...this.resTabList.children].forEach((b, j) => b.classList.toggle('active', j === i));
+    this.planShown = false;
+    this.planView.el.style.display = 'none';
+    this.grid.el.style.display = '';
+    this.editInfo.style.display = '';
+    [...this.resTabList.children].forEach(b => b.classList.toggle('active', b.dataset.i === String(i)));
     const s = this.sets[i];
     this.cols = s.columns.map(c => ({ name: c.name, kind: c.kind, type: c.type, readOnly: true, title: `${c.name}: ${c.type}${c.table ? ' (' + c.table + ')' : ''}` }));
     this.rows = s.rows.slice();
