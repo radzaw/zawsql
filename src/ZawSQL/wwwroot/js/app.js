@@ -15,13 +15,14 @@ import { QueryView } from './views/query.js';
 import { userManager } from './views/users.js';
 import { maintenanceDialog } from './views/maintenance.js';
 import { importDialog } from './views/import.js';
+import { updateDialog, autoCheckUpdates } from './views/update.js';
 import { LibraryStore, editSnippetDialog } from './views/library.js';
 import { snippetVars } from './library.js';
 import { formatSql } from './sqlformat.js';
 import { sessionManager, confirmHostKey, exportDumpDialog, runSqlFile, createDatabaseDialog, preferencesDialog, aboutDialog } from './views/tools.js';
 
 const TYPE_LABEL = { table: 'Table', view: 'View', procedure: 'Procedure', function: 'Function', trigger: 'Trigger', event: 'Event' };
-const DEFAULT_PREFS = { rowsPerPage: 1000, maxResultRows: 10000, theme: 'system', editorFontSize: 13, confirmNoWhere: true, formatKeywordCase: 'upper', formatIndent: '2' };
+const DEFAULT_PREFS = { rowsPerPage: 1000, maxResultRows: 10000, theme: 'system', editorFontSize: 13, confirmNoWhere: true, formatKeywordCase: 'upper', formatIndent: '2', checkUpdates: true };
 
 // ---------------------------------------------------------------- tabs
 
@@ -136,6 +137,7 @@ class App {
 
     this.log = new LogPanel(document.getElementById('log'));
     setLogSink(lines => this.log.add(lines));
+    try { this.version = await get('/version', null, { quiet: true }); } catch { this.version = null; }
     this.library = new LibraryStore();
     await this.library.load();
     if (this.library.loadError) this.log.error(`Saved queries and snippets could not be loaded: ${this.library.loadError.message}`);
@@ -167,6 +169,7 @@ class App {
     window.addEventListener('beforeunload', () => this.saveState());
 
     startHeartbeat();
+    setTimeout(() => autoCheckUpdates(this), 15_000);
     this.log.info(`ZawSQL started. Configuration is stored on the local machine.`);
     sessionManager(this);
   }
@@ -229,7 +232,8 @@ class App {
     this.sbSel = h('div', { class: 'sb-cell' });
     this.sbRo = h('div', { class: 'sb-cell sb-ro', style: { display: 'none' }, title: 'This session is in read-only mode; changes are blocked.' }, 'READ-ONLY');
     this.sbProd = h('div', { class: 'sb-cell sb-prod', style: { display: 'none' }, title: 'Production server: every change asks for confirmation.' }, 'PRODUCTION');
-    sb.append(this.sbMsg, this.sbProd, this.sbRo, this.sbSel, this.sbConn, this.sbVer);
+    this.sbUpdate = h('button', { class: 'sb-cell sb-update', style: { display: 'none' }, title: 'Show what is new and update' });
+    sb.append(this.sbMsg, this.sbUpdate, this.sbProd, this.sbRo, this.sbSel, this.sbConn, this.sbVer);
     setInterval(() => this.updateStatus(), 1000);
   }
 
@@ -306,7 +310,8 @@ class App {
       ]],
       ['Help', () => [
         { label: 'Keyboard shortcuts', icon: 'info', onClick: () => this.shortcutsDialog() },
-        { label: 'About ZawSQL', icon: 'question', onClick: () => aboutDialog() },
+        { label: 'Check for updates…', icon: 'next', onClick: () => updateDialog(this) },
+        { label: 'About ZawSQL', icon: 'question', onClick: () => aboutDialog(this.version) },
       ]],
     ];
   }

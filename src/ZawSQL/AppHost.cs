@@ -29,6 +29,7 @@ public static class AppHost
         builder.Services.AddSingleton<ConnectionManager>();
         builder.Services.AddSingleton<Heartbeat>();
         builder.Services.AddSingleton<ImportStore>();
+        builder.Services.AddSingleton<Updater>();
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance); // Windows-1250/1252, ISO-8859-x for CSV files
 
         var app = builder.Build();

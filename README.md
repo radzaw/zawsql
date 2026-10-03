@@ -72,6 +72,10 @@ The backend is an ASP.NET Core app that talks to the database (via [MySqlConnect
   - **Options:** what to do with existing keys (report as errors, skip, update, or replace), empty cells and a NULL marker (`\N`), decimal comma (`1 234,56`), day-first or month-first dates (both suggested from the data), stop at the first error or skip failing rows, all-or-nothing in one transaction, and emptying the table first. The SQL that will run is previewed.
   - **Import:** batched multi-row INSERTs with a progress bar, remaining time and a Stop button. Failing rows are reported with their row number in the file and MySQL's message; warnings are counted and sampled. Read-only sessions can't import, and production sessions ask first.
 - **Dark mode:** a light and a dark theme, plus "Follow system", which switches live when the OS theme changes. Toggle with the sun/moon toolbar button or pick in **Tools › Theme**. The saved theme is applied before the window first paints (no light flash), and the app window's title bar follows it.
+- **Updates** (Help › Check for updates…): ZawSQL checks GitHub for a newer release once a day (switch it off in Preferences) and shows "ZawSQL x.y is available" in the status bar. The dialog shows the release notes and offers **Download and install**, **Skip this version** or the release page.
+  - The download is checked against the release's published SHA-256 checksum. If it doesn't match, it is discarded and nothing changes.
+  - **Restart now** saves your tabs, swaps the executable (the previous one is kept with an `.old` suffix until the new version has started) and starts the new version. It takes over the same port, so the open window reloads into it; open connections are closed (it asks first).
+  - Updating needs a standalone build in a folder you can write to. When running from source, or from a read-only location such as `Program Files`, the dialog says so and links to the download page instead.
 - SQL log panel and status bar.
 
 ## Screenshots
@@ -144,9 +148,9 @@ Output goes to `dist/<runtime>/`, one self-contained file per platform (about 50
 
 | Suite | What it covers | Command |
 | --- | --- | --- |
-| C# unit tests | read-only guard, `SHOW GRANTS` parser, value formatting and quoting, encrypted session store, library file and backup, HTTP layer (token, static files, sessions, state, library), CSV/.xlsx reading, encoding and delimiter detection, type guessing, value conversion | `dotnet test` |
+| C# unit tests | read-only guard, `SHOW GRANTS` parser, value formatting and quoting, encrypted session store, library file and backup, HTTP layer (token, static files, sessions, state, library), update checks (version comparison, checksum verification, executable swap, a fake release feed), CSV/.xlsx reading, encoding and delimiter detection, type guessing, value conversion | `dotnet test` |
 | C# integration tests | browsing, data formatting, row edits, queries and cancel, dump plus re-import, read-only enforcement, user manager, partitions, table maintenance, server monitor sampling, session flags, SSH tunnels (password, keys, host key checks), CSV/Excel import (new and existing tables, duplicate-key modes, row-numbered errors, all-or-nothing rollback), slow query and lock insight (digests, row and metadata lock waits, deadlocks, slow log table), Visual EXPLAIN (JSON plan, tabular EXPLAIN, ANALYZE, read-only rules), replication status (live replica: threads, lag, GTIDs, stop/start, a replication error and its recovery) | `dotnet test` with `ZAWSQL_TEST_HOST` set (see below) |
-| UI unit tests | SQL splitter, safety classifier, highlighter, partition SQL, user-manager SQL, grid export, monitor rates and axis scales, snippet expansion, library grouping and import, SQL formatter (layout, keyword case, comments, stored programs, round-trip safety), import column matching and validation, query statistics snapshots and lock summaries, EXPLAIN plan parsing for MySQL and MariaDB (from real captured plans) and EXPLAIN ANALYZE trees, replication health, lag and advice | `cd tests/js && npm test` (Node 22+, no dependencies) |
+| UI unit tests | SQL splitter, safety classifier, highlighter, partition SQL, user-manager SQL, grid export, monitor rates and axis scales, snippet expansion, library grouping and import, SQL formatter (layout, keyword case, comments, stored programs, round-trip safety), import column matching and validation, query statistics snapshots and lock summaries, EXPLAIN plan parsing for MySQL and MariaDB (from real captured plans) and EXPLAIN ANALYZE trees, replication health, lag and advice, update notices and release-note rendering | `cd tests/js && npm test` (Node 22+, no dependencies) |
 | End-to-end | real browser: session manager, grid editing, query tab and in-place result editing, WHERE-less DELETE guard, saved queries and snippets, SQL formatter, Visual EXPLAIN, table editor, table maintenance, server monitor (charts, tooltips, table view), replication status, user manager, dark mode, performance panel (top queries, killing a lock holder), CSV import wizard, SSH tunnel, no JS errors | `cd tests/e2e && npm ci && npx playwright install chromium && npx playwright test` |
 
 Integration and end-to-end tests need a MySQL or MariaDB server, configured with environment variables. The account needs full privileges; tests create and drop their own uniquely named databases and users.
@@ -166,6 +170,26 @@ Without `ZAWSQL_TEST_HOST`, the integration tests are skipped. The SSH tunnel te
 The integration and Playwright tests need a MySQL or MariaDB server, so run them locally, for example against throwaway Docker containers (`docker run -d -p 3306:3306 -e MYSQL_ROOT_PASSWORD=… mysql:8.4`, likewise `mariadb:11.4`).
 
 When everything passes on a push, it also publishes the standalone builds for all five platforms as downloadable artifacts.
+
+
+## Releases and updates
+
+Push a version tag to publish a release:
+
+```sh
+git tag v1.2.0 && git push origin v1.2.0
+```
+
+CI then builds all five platforms with that version number. It creates a GitHub release with:
+- `zawsql-<runtime>[.exe]` executables
+- a `SHA256SUMS` file
+- generated release notes
+
+A tag with a suffix (`v1.3.0-beta.1`) becomes a pre-release. ZawSQL's update check reads the latest release (pre-releases are ignored), downloads the executable for its own platform and refuses it unless it matches `SHA256SUMS`. The checksum guards against a broken or tampered download in transit, but it is not code signing: the release files are only as trustworthy as the GitHub repository they come from.
+
+On Linux and macOS, make a manually downloaded executable runnable with `chmod +x zawsql-linux-x64`. The updater does this itself.
+
+`ZAWSQL_UPDATE_URL` points the update check at a different release feed (a GitHub-style `releases/latest` JSON), for example an internal mirror; plain `http://` is then allowed too.
 
 ## Command line
 

@@ -44,7 +44,7 @@ export class ExplainView {
       }
     }
     if (this.view === 'measured' && !this.steps) this.view = 'diagram';
-    if (this.steps && r.analyzed) this.view = 'measured';
+    if (r.analyzed) this.view = this.steps ? 'measured' : 'diagram'; // MariaDB's ANALYZE puts actual rows and time on the diagram
     this.render();
   }
 

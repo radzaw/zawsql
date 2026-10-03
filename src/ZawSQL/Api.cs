@@ -96,6 +96,14 @@ public static class Api
             return await RunSync(() => { st.SaveLibrary(doc.RootElement); return null; });
         });
 
+        // ---- self-update ----
+        api.MapGet("/version", (Updater u) => RunSync(() => u.Version()));
+        api.MapPost("/update/check", (Updater u, CancellationToken ct) => Run(async _ => await u.CheckAsync(ct)));
+        api.MapPost("/update/download", (Updater u) => RunSync(() => u.StartDownload()));
+        api.MapGet("/update/status", (Updater u) => RunSync(() => u.Status()));
+        api.MapPost("/update/install", (Updater u, IHostApplicationLifetime life, HttpContext ctx) => RunSync(() =>
+            new { version = u.InstallAndRestart(life, ctx.Connection.LocalPort), restarting = true }));
+
         // ---- import files (not tied to a session) ----
         api.MapPost("/import/upload", async (HttpContext ctx, string name, ImportStore store, CancellationToken ct) =>
         {

@@ -8,6 +8,8 @@ public sealed class AppOptions
     public bool NoBrowser { get; private set; }
     public bool KeepAlive { get; private set; }
     public bool ShowHelp { get; private set; }
+    /// <summary>Restarted after an update: don't open a window (the existing one reloads) and wait for the port.</summary>
+    public bool Attach { get; private set; }
     public string? Browser { get; private set; }
     public string ConfigDir { get; private set; } = DefaultConfigDir();
     public string Token { get; private set; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(20)).ToLowerInvariant();
@@ -37,6 +39,7 @@ public sealed class AppOptions
                 case "--port": o.Port = int.Parse(Next()); break;
                 case "--no-browser": o.NoBrowser = true; o.KeepAlive = true; break;
                 case "--keep-alive": o.KeepAlive = true; break;
+                case "--attach": o.Attach = true; break;
                 case "--browser": o.Browser = Next(); break;
                 case "--config": o.ConfigDir = Path.GetFullPath(Next()); break;
                 case "--token":

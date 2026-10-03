@@ -210,8 +210,13 @@ test('visual EXPLAIN shows the plan, what to look at, and measured steps', async
 
   await xp.getByRole('button', { name: 'Analyze (runs it)' }).click();
   await expect(xp.locator('.xp-caption')).toContainText('Measured plan');
-  await expect(xp.locator('.subtab.active')).toHaveText('Measured');
-  await expect(xp.locator('.xp-steps tbody tr').first()).toBeVisible();
+  if (await xp.locator('.subtab', { hasText: 'Measured' }).count()) { // MySQL: EXPLAIN ANALYZE steps
+    await expect(xp.locator('.subtab.active')).toHaveText('Measured');
+    await expect(xp.locator('.xp-steps tbody tr').first()).toBeVisible();
+  } else { // MariaDB: ANALYZE FORMAT=JSON adds actuals to the diagram
+    await expect(xp.locator('.subtab.active')).toHaveText('Diagram');
+    await expect(xp.locator('.xp-card.xp-table')).toHaveCount(2);
+  }
 
   // Running a query keeps the plan one click away.
   await ta.press('F9');
@@ -288,15 +293,21 @@ test('performance: top queries, open transactions and killing a lock holder', as
   await page.locator('.host-view .subtab', { hasText: 'Performance' }).click();
   const ins = page.locator('.ins');
   await expect(ins.locator('.subtab.active')).toHaveText('Top queries');
-  // MySQL 8.4 has performance_schema on: earlier tests' statements are listed with their timings.
-  await expect(ins.locator('.ins-qgrid .gr').first()).toBeVisible();
-  // System statements (ZawSQL's own metadata queries) are hidden by default.
-  await expect(ins.locator('.ins-qgrid .gr', { hasText: 'information_schema' })).toHaveCount(0);
-  await ins.locator('.ins-qbar input[type=search]').fill('select customers'); // every term must match
-  const row = ins.locator('.ins-qgrid .gr', { hasText: 'FROM `customers`' }).first();
-  await row.click();
-  await expect(ins.locator('.ins-detail .ins-stat', { hasText: 'Executions' })).toBeVisible();
-  await expect(ins.locator('.ins-detail .ins-sql')).toContainText('customers');
+  const statsOff = ins.getByText('Statement statistics are not available');
+  await expect(ins.locator('.ins-qgrid .gr').first().or(statsOff)).toBeVisible();
+  if (await statsOff.isVisible()) {
+    // MariaDB ships with performance_schema off: the panel says so and how to turn it on.
+    await expect(ins.getByText('performance_schema').first()).toBeVisible();
+  } else {
+    // MySQL 8.4 has performance_schema on: earlier tests' statements are listed with their timings.
+    // System statements (ZawSQL's own metadata queries) are hidden by default.
+    await expect(ins.locator('.ins-qgrid .gr', { hasText: 'information_schema' })).toHaveCount(0);
+    await ins.locator('.ins-qbar input[type=search]').fill('select customers'); // every term must match
+    const row = ins.locator('.ins-qgrid .gr', { hasText: 'FROM `customers`' }).first();
+    await row.click();
+    await expect(ins.locator('.ins-detail .ins-stat', { hasText: 'Executions' })).toBeVisible();
+    await expect(ins.locator('.ins-detail .ins-sql')).toContainText('customers');
+  }
 
   // An idle transaction holding a row lock, from another connection.
   await exec('START TRANSACTION', 'UPDATE customers SET name = name WHERE id = 1');

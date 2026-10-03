@@ -551,6 +551,7 @@ export async function preferencesDialog(app) {
   const theme = h('select', { class: 'inp' }, [['system', 'Follow system'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) => h('option', { value: v, selected: v === p.theme }, l)));
   const font = h('input', { class: 'inp', type: 'number', min: 9, max: 24, value: p.editorFontSize });
   const noWhere = h('input', { type: 'checkbox', checked: p.confirmNoWhere !== false });
+  const checkUpdates = h('input', { type: 'checkbox', checked: p.checkUpdates !== false });
   const opt = (pairs, v) => h('select', { class: 'inp' }, pairs.map(([k, l]) => h('option', { value: k, selected: k === String(v) }, l)));
   const kwCase = opt([['upper', 'UPPERCASE'], ['lower', 'lowercase'], ['keep', 'As typed']], p.formatKeywordCase);
   const indent = opt([['2', '2 spaces'], ['4', '4 spaces'], ['tab', 'Tab']], p.formatIndent);
@@ -564,7 +565,8 @@ export async function preferencesDialog(app) {
       h('label', { class: 'frow' }, h('span', null, 'SQL editor font size:'), font),
       h('label', { class: 'frow' }, h('span', null, 'Formatter keywords:'), kwCase),
       h('label', { class: 'frow' }, h('span', null, 'Formatter indent:'), indent),
-      h('label', { class: 'frow' }, h('span', null, 'Safety:'), h('label', { class: 'chk' }, noWhere, ' Confirm UPDATE/DELETE without WHERE'))),
+      h('label', { class: 'frow' }, h('span', null, 'Safety:'), h('label', { class: 'chk' }, noWhere, ' Confirm UPDATE/DELETE without WHERE')),
+      h('label', { class: 'frow' }, h('span', null, 'Updates:'), h('label', { class: 'chk' }, checkUpdates, ' Check for new versions once a day'))),
     buttons: [{ label: 'OK', value: true, primary: true }, { label: 'Cancel', value: false }],
   });
   if (!ok) return;
@@ -574,6 +576,7 @@ export async function preferencesDialog(app) {
     theme: theme.value,
     editorFontSize: Math.max(9, parseInt(font.value, 10) || 13),
     confirmNoWhere: noWhere.checked,
+    checkUpdates: checkUpdates.checked,
     formatKeywordCase: kwCase.value,
     formatIndent: indent.value,
   });
@@ -581,12 +584,13 @@ export async function preferencesDialog(app) {
   app.saveStateSoon();
 }
 
-export function aboutDialog() {
+export function aboutDialog(version) {
   return modal({
     title: 'About ZawSQL',
     width: 420,
     body: h('div', { class: 'about' },
       h('div', { class: 'about-logo', html: icon('database').replace('width="16" height="16"', 'width="48" height="48"') }),
-      h('div', null, h('h2', null, 'ZawSQL'), h('p', null, 'A lightweight MySQL / MariaDB client.'), h('p', { class: 'muted' }, 'C# / ASP.NET Core backend with a browser-hosted UI. Runs on Windows, Linux and macOS.'))),
+      h('div', null, h('h2', null, 'ZawSQL'), h('p', null, 'A lightweight MySQL / MariaDB client.'),
+        version ? h('p', null, `Version ${version.version} (${version.rid})`) : '', h('p', { class: 'muted' }, 'C# / ASP.NET Core backend with a browser-hosted UI. Runs on Windows, Linux and macOS.'))),
   });
 }
