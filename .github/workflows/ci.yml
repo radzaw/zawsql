@@ -77,9 +77,69 @@ jobs:
           name: zawsql-${{ matrix.rid }}
           path: dist/${{ matrix.rid }}
 
+  sign:
+    # Signs ZawSQL.exe with Azure Artifact Signing (formerly Trusted Signing) before the release is assembled,
+    # so SHA256SUMS covers the signed file. Without the AZURE_SIGNING_* variables the release goes out unsigned.
+    name: Sign Windows build
+    needs: package
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: zawsql-win-x64
+          path: dist/win-x64
+      - name: Signing not configured
+        if: vars.AZURE_SIGNING_ACCOUNT == ''
+        run: echo "::warning::AZURE_SIGNING_ACCOUNT is not set; the Windows build is released unsigned."
+      - uses: azure/login@v3
+        if: vars.AZURE_SIGNING_ACCOUNT != ''
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - uses: azure/artifact-signing-action@v2
+        if: vars.AZURE_SIGNING_ACCOUNT != ''
+        with:
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_SIGNING_PROFILE }}
+          files-folder: ${{ github.workspace }}\dist\win-x64
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          description: ZawSQL
+          description-url: ${{ github.server_url }}/${{ github.repository }}
+      - name: Check the signature and that the signed build starts
+        if: vars.AZURE_SIGNING_ACCOUNT != ''
+        shell: pwsh
+        run: |
+          $exe = 'dist/win-x64/ZawSQL.exe'
+          $sig = Get-AuthenticodeSignature $exe
+          "$($sig.Status): $($sig.SignerCertificate.Subject)"
+          if ($sig.Status -ne 'Valid') { throw "ZawSQL.exe is not validly signed: $($sig.StatusMessage)" }
+          $p = Start-Process $exe -PassThru -ArgumentList '--no-browser', '--port', '5399', '--token', 'smoke-token-0123456789abcdef', '--config', "$env:RUNNER_TEMP\zawsql-cfg"
+          $up = $false
+          for ($i = 0; $i -lt 60 -and -not $up; $i++) {
+            try { $up = (Invoke-WebRequest http://127.0.0.1:5399/ -UseBasicParsing).StatusCode -eq 200 } catch { Start-Sleep -Milliseconds 500 }
+          }
+          Stop-Process $p -Force
+          if (-not $up) { throw 'The signed ZawSQL.exe did not start.' }
+      - uses: actions/upload-artifact@v4
+        if: vars.AZURE_SIGNING_ACCOUNT != ''
+        with:
+          name: zawsql-win-x64
+          path: dist/win-x64
+          overwrite: true
+
   release:
     name: GitHub release
-    needs: package
+    needs: [package, sign]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:

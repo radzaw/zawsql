@@ -142,7 +142,7 @@ dotnet run
 
 Output goes to `dist/<runtime>/`, one self-contained file per platform (about 50 MB). No .NET installation is needed on the target machine.
 
-> **Windows note:** Smart App Control / application-control policies may block a self-built, unsigned `ZawSQL.exe`. Either sign the executable or run the framework-dependent build with `dotnet ZawSQL.dll` (`./publish.ps1 -FrameworkDependent`).
+> **Windows note:** Smart App Control / application-control policies may block a self-built, unsigned `ZawSQL.exe`. The release builds are signed (see [Code signing](#code-signing-windows)). For your own builds, either sign the executable or run the framework-dependent build with `dotnet ZawSQL.dll` (`./publish.ps1 -FrameworkDependent`).
 
 ## Testing
 
@@ -185,11 +185,33 @@ CI then builds all five platforms with that version number. It creates a GitHub 
 - a `SHA256SUMS` file
 - generated release notes
 
-A tag with a suffix (`v1.3.0-beta.1`) becomes a pre-release. ZawSQL's update check reads the latest release (pre-releases are ignored), downloads the executable for its own platform and refuses it unless it matches `SHA256SUMS`. The checksum guards against a broken or tampered download in transit, but it is not code signing: the release files are only as trustworthy as the GitHub repository they come from.
+A tag with a suffix (`v1.3.0-beta.1`) becomes a pre-release. ZawSQL's update check reads the latest release (pre-releases are ignored), downloads the executable for its own platform and refuses it unless it matches `SHA256SUMS`. The checksum guards against a broken or tampered download in transit. It is not a publisher check: the release files are only as trustworthy as the GitHub repository they come from. On Windows, the signature (below) adds one.
 
 On Linux and macOS, make a manually downloaded executable runnable with `chmod +x zawsql-linux-x64`. The updater does this itself.
 
 `ZAWSQL_UPDATE_URL` points the update check at a different release feed (a GitHub-style `releases/latest` JSON), for example an internal mirror; plain `http://` is then allowed too.
+
+### Code signing (Windows)
+
+When it is configured, the release workflow signs `zawsql-win-x64.exe` with [Azure Artifact Signing](https://learn.microsoft.com/azure/artifact-signing/) (formerly Trusted Signing). This happens before `SHA256SUMS` is written, so the checksum covers the signed file. The workflow then checks the signature and that the signed build starts. Signed builds pass Smart App Control and show the verified publisher in SmartScreen and in the file properties. Without the configuration, releases still go out, unsigned, with a warning in the workflow run.
+
+One-time setup:
+
+1. In the Azure portal, create an **Artifact Signing account**. Note its endpoint, which depends on the region (for example `https://weu.codesigning.azure.net/`).
+2. Complete **identity validation** for your organization or yourself, then create a **certificate profile** of type *Public Trust*.
+3. In Microsoft Entra ID, register an app, for example `zawsql-signing`. Under *Certificates & secrets › Federated credentials*, add a **GitHub Actions** credential with:
+   - organization `radzaw`
+   - repository `zawsql`
+   - entity type **Environment**
+   - name `release`
+
+   No client secret is needed: GitHub signs in with OIDC.
+4. On the signing account (or just the certificate profile), assign that app the **Artifact Signing Certificate Profile Signer** role.
+5. In the GitHub repository, open *Settings › Environments*, create `release` and limit its deployment branches and tags to `v*`. Add to it:
+   - **secrets** `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` and `AZURE_SUBSCRIPTION_ID`
+   - **variables** `AZURE_SIGNING_ENDPOINT`, `AZURE_SIGNING_ACCOUNT` and `AZURE_SIGNING_PROFILE` (the certificate profile name)
+
+Only tag builds are signed. Builds from `main` and pull requests never touch the signing account.
 
 ## Command line
 
