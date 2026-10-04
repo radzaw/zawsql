@@ -64,6 +64,43 @@ public sealed class UpdaterTests : IDisposable
         Assert.True(AppOptions.Parse(["--attach"]).Attach);
     }
 
+    [Fact]
+    public void A_signed_copy_only_accepts_updates_from_the_same_publisher()
+    {
+        var us = new Publisher("CN=Example Ltd, O=Example Ltd, C=PL", "Example Ltd");
+        var renewed = us with { }; // Artifact Signing renews the certificate; the subject stays
+        var other = new Publisher("CN=Someone Else, O=Someone Else, C=US", "Someone Else");
+        Assert.Null(Updater.PublisherMismatch(us, renewed));
+        Assert.Contains("isn't validly signed", Updater.PublisherMismatch(us, null));
+        Assert.Contains("signed by Someone Else, not by Example Ltd", Updater.PublisherMismatch(us, other));
+        // An unsigned copy (development build, or a release from before signing) relies on the checksum alone.
+        Assert.Null(Updater.PublisherMismatch(null, null));
+        Assert.Null(Updater.PublisherMismatch(null, other));
+    }
+
+    [WindowsFact]
+    public void Authenticode_reports_the_publisher_of_signed_files_only()
+    {
+        // The .NET runtime's own files are signed by Microsoft.
+        var signed = Path.Combine(System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory(), "coreclr.dll");
+        var publisher = Authenticode.SignerOf(signed);
+        Assert.NotNull(publisher);
+        Assert.Contains("O=Microsoft Corporation", publisher.Subject);
+        Assert.False(string.IsNullOrEmpty(publisher.Name)); // the CN, e.g. ".NET"
+
+        // A copy with one byte changed in the signed content no longer verifies.
+        var tampered = Path.Combine(dir, "tampered.dll");
+        var bytes = File.ReadAllBytes(signed);
+        bytes[bytes.Length / 2] ^= 0xFF;
+        File.WriteAllBytes(tampered, bytes);
+        Assert.Null(Authenticode.SignerOf(tampered));
+
+        var unsigned = Path.Combine(dir, "unsigned.exe");
+        File.WriteAllText(unsigned, "MZ not really a program");
+        Assert.Null(Authenticode.SignerOf(unsigned));
+        Assert.Null(Authenticode.SignerOf(Path.Combine(dir, "missing.exe")));
+    }
+
     /// <summary>A local stand-in for the GitHub release API and its assets.</summary>
     static async Task<(WebApplication app, string url)> ReleaseServerAsync(byte[] binary, string? checksum)
     {
@@ -152,5 +189,13 @@ public sealed class UpdaterTests : IDisposable
                 Environment.SetEnvironmentVariable("ZAWSQL_UPDATE_URL", null);
             }
         }
+    }
+}
+
+public sealed class WindowsFactAttribute : FactAttribute
+{
+    public WindowsFactAttribute()
+    {
+        if (!OperatingSystem.IsWindows()) Skip = "Authenticode signatures are checked on Windows only.";
     }
 }

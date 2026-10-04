@@ -47,7 +47,7 @@ public sealed partial class Updater(AppOptions opts)
     Release? latest;
     string state = "idle"; // idle | downloading | ready | error
     long received, total;
-    string? error, downloaded;
+    string? error, downloaded, downloadSigner;
     Task? downloadTask;
 
     public sealed record Asset(string Name, string Url, long Size);
@@ -203,6 +203,9 @@ public sealed partial class Updater(AppOptions opts)
 
     public static string? ExePath => Environment.ProcessPath;
 
+    /// <summary>Who signed this running copy (Windows only); the file can't change while it runs, so checked once.</summary>
+    static readonly Lazy<Publisher?> OwnSigner = new(() => ExePath is { } exe ? Authenticode.SignerOf(exe) : null);
+
     /// <summary>Whether this process can replace its own executable, and why not.</summary>
     public static (bool ok, string? reason) CanInstall(string? exePath = null)
     {
@@ -228,7 +231,11 @@ public sealed partial class Updater(AppOptions opts)
         return (true, null);
     }
 
-    public object Version() => new { version = CurrentVersion, rid = Rid, canInstall = CanInstall().ok, reason = CanInstall().reason, source = Source };
+    public object Version() => new
+    {
+        version = CurrentVersion, rid = Rid, canInstall = CanInstall().ok, reason = CanInstall().reason, source = Source,
+        signer = OwnSigner.Value?.Name,
+    };
 
     public async Task<object> CheckAsync(CancellationToken ct)
     {
@@ -338,7 +345,8 @@ public sealed partial class Updater(AppOptions opts)
             {
                 lock (gate) { if (len is { } l) total = l; received = got; }
             });
-            lock (gate) (state, downloaded) = ("ready", target);
+            var signer = VerifyPublisher(target);
+            lock (gate) (state, downloaded, downloadSigner) = ("ready", target, signer?.Name);
         }
         catch (Exception ex)
         {
@@ -346,9 +354,32 @@ public sealed partial class Updater(AppOptions opts)
         }
     }
 
+    /// <summary>
+    /// A signed copy of ZawSQL only installs updates signed by the same publisher (the certificate subject: Artifact
+    /// Signing renews the certificate itself every few days). An unsigned copy (a development build, or a release made
+    /// before signing was set up) accepts anything that passed the checksum. Returns the reason to refuse, or null.
+    /// </summary>
+    public static string? PublisherMismatch(Publisher? current, Publisher? update) =>
+        current == null ? null
+        : update == null ? $"The update isn't validly signed, but this copy of ZawSQL is signed by {current.Name}."
+        : update.Subject != current.Subject ? $"The update is signed by {update.Name}, not by {current.Name} like this copy of ZawSQL."
+        : null;
+
+    /// <summary>The <see cref="Authenticode"/> check on Windows; deletes the file and throws when it fails.</summary>
+    static Publisher? VerifyPublisher(string file)
+    {
+        var signer = Authenticode.SignerOf(file);
+        if (PublisherMismatch(OwnSigner.Value, signer) is { } problem)
+        {
+            try { File.Delete(file); } catch (IOException) { }
+            throw new ApiException(problem + " Nothing was changed.");
+        }
+        return signer;
+    }
+
     public object Status()
     {
-        lock (gate) return new { state, received, total, error, version = latest?.Version };
+        lock (gate) return new { state, received, total, error, version = latest?.Version, signer = state == "ready" ? downloadSigner : null };
     }
 
     /// <summary>
@@ -362,6 +393,15 @@ public sealed partial class Updater(AppOptions opts)
         {
             if (state != "ready" || downloaded == null || !File.Exists(downloaded)) throw new ApiException("The update hasn't been downloaded yet.");
             (version, update) = (latest!.Version, downloaded);
+        }
+        try
+        {
+            VerifyPublisher(update); // again: the file sat in the folder since the download
+        }
+        catch (ApiException ex)
+        {
+            lock (gate) (state, error, downloaded) = ("error", ex.Message, null);
+            throw;
         }
         MakeExecutable(update);
         var psi = new ProcessStartInfo(update) { UseShellExecute = false };

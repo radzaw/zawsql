@@ -591,6 +591,6 @@ export function aboutDialog(version) {
     body: h('div', { class: 'about' },
       h('div', { class: 'about-logo', html: icon('database').replace('width="16" height="16"', 'width="48" height="48"') }),
       h('div', null, h('h2', null, 'ZawSQL'), h('p', null, 'A lightweight MySQL / MariaDB client.'),
-        version ? h('p', null, `Version ${version.version} (${version.rid})`) : '', h('p', { class: 'muted' }, 'C# / ASP.NET Core backend with a browser-hosted UI. Runs on Windows, Linux and macOS.'))),
+        version ? h('p', null, `Version ${version.version} (${version.rid})${version.signer ? ` · signed by ${version.signer}` : ''}`) : '', h('p', { class: 'muted' }, 'C# / ASP.NET Core backend with a browser-hosted UI. Runs on Windows, Linux and macOS.'))),
   });
 }

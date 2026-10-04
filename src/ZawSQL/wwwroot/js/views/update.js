@@ -86,10 +86,11 @@ async function download(app, r, ui) {
   ui.install.disabled = ui.skip.disabled = true;
   ui.progress.style.display = '';
   const bar = ui.progress.firstChild;
+  let s;
   try {
     await post('/update/download', {}, { quiet: true });
     for (;;) {
-      const s = await get('/update/status', null, { quiet: true });
+      s = await get('/update/status', null, { quiet: true });
       bar.style.width = s.total ? `${(s.received / s.total) * 100}%` : '0';
       ui.status.textContent = s.state === 'downloading' ? `Downloading… ${progressText(s.received, s.total)}` : '';
       if (s.state === 'error') throw new Error(s.error);
@@ -103,7 +104,7 @@ async function download(app, r, ui) {
     return app.showError(e);
   }
   bar.style.width = '100%';
-  ui.status.textContent = `Downloaded and verified (SHA-256). ZawSQL restarts into version ${r.latest}.`;
+  ui.status.textContent = `Downloaded and verified (SHA-256${s.signer ? `, signed by ${s.signer}` : ''}). ZawSQL restarts into version ${r.latest}.`;
   ui.install.textContent = 'Restart now';
   ui.install.disabled = false;
   ui.install.onclick = () => restart(app, r, ui);
