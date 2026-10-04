@@ -15,14 +15,14 @@ import { QueryView } from './views/query.js';
 import { userManager } from './views/users.js';
 import { maintenanceDialog } from './views/maintenance.js';
 import { importDialog } from './views/import.js';
-import { updateDialog, autoCheckUpdates } from './views/update.js';
+import { updateDialog, autoCheckUpdates, whatsNewAfterUpdate, whatsNewDialog } from './views/update.js';
 import { LibraryStore, editSnippetDialog } from './views/library.js';
 import { snippetVars } from './library.js';
 import { formatSql } from './sqlformat.js';
 import { sessionManager, confirmHostKey, exportDumpDialog, runSqlFile, createDatabaseDialog, preferencesDialog, aboutDialog } from './views/tools.js';
 
 const TYPE_LABEL = { table: 'Table', view: 'View', procedure: 'Procedure', function: 'Function', trigger: 'Trigger', event: 'Event' };
-const DEFAULT_PREFS = { rowsPerPage: 1000, maxResultRows: 10000, theme: 'system', editorFontSize: 13, confirmNoWhere: true, formatKeywordCase: 'upper', formatIndent: '2', checkUpdates: true };
+const DEFAULT_PREFS = { rowsPerPage: 1000, maxResultRows: 10000, theme: 'system', editorFontSize: 13, confirmNoWhere: true, formatKeywordCase: 'upper', formatIndent: '2', checkUpdates: true, showWhatsNew: true };
 
 // ---------------------------------------------------------------- tabs
 
@@ -172,6 +172,8 @@ class App {
     setTimeout(() => autoCheckUpdates(this), 15_000);
     this.log.info(`ZawSQL started. Configuration is stored on the local machine.`);
     sessionManager(this);
+    // After an update: what changed since the version that ran last time (on top of the session manager).
+    whatsNewAfterUpdate(this);
   }
 
   applyPrefs() {
@@ -311,6 +313,7 @@ class App {
       ]],
       ['Help', () => [
         { label: 'Keyboard shortcuts', icon: 'info', onClick: () => this.shortcutsDialog() },
+        { label: "What's new…", icon: 'info', onClick: () => whatsNewDialog(this) },
         { label: 'Check for updates…', icon: 'next', onClick: () => updateDialog(this) },
         { label: 'About ZawSQL', icon: 'question', onClick: () => aboutDialog(this.version) },
       ]],

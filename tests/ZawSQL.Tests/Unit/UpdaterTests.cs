@@ -25,6 +25,22 @@ public sealed class UpdaterTests : IDisposable
     public void Versions_compare_numerically(string a, string b, int expected) => Assert.Equal(expected, Math.Sign(Updater.CompareVersions(a, b)));
 
     [Fact]
+    public void The_release_list_sits_next_to_the_latest_release()
+    {
+        try
+        {
+            Environment.SetEnvironmentVariable("ZAWSQL_UPDATE_URL", null);
+            Assert.Equal("https://api.github.com/repos/radzaw/zawsql/releases?per_page=50", Updater.ListSource);
+            Environment.SetEnvironmentVariable("ZAWSQL_UPDATE_URL", "https://mirror.example.com/feed.json");
+            Assert.Null(Updater.ListSource); // not a GitHub-style feed: no list to read
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("ZAWSQL_UPDATE_URL", null);
+        }
+    }
+
+    [Fact]
     public void Checksum_files_asset_names_and_paths()
     {
         var h = new string('a', 64);
@@ -117,6 +133,16 @@ public sealed class UpdaterTests : IDisposable
                 new { name = "SHA256SUMS", browser_download_url = $"{Base(c)}/dl/sums", size = 1 },
             },
         }));
+        // The release list ("What's new"): the running version, two older releases, a draft, a pre-release and a newer one.
+        app.MapGet("/releases", () => Results.Json(new object[]
+        {
+            new { tag_name = "v999.0.0", name = "Future", body = "- later", html_url = "https://example.com/releases/tag/v999.0.0" },
+            new { tag_name = "v0.0.3", name = "Draft", body = "- unpublished", draft = true },
+            new { tag_name = $"v{Updater.CurrentVersion}", name = (string?)null, body = "- **current** release", html_url = $"https://example.com/releases/tag/v{Updater.CurrentVersion}", published_at = "2026-10-01T00:00:00Z" },
+            new { tag_name = "v0.0.2-rc.1", name = "RC", body = "- candidate", prerelease = true },
+            new { tag_name = "v0.0.1", name = "First", body = "- first" },
+            new { tag_name = "v0.0.2", name = "Second", body = "- second" },
+        }));
         app.MapGet("/dl/bin", () => Results.Bytes(binary));
         app.MapGet("/dl/sums", () => checksum == null ? "" : $"{checksum}  {Updater.AssetName(Updater.Rid)}\n");
         await app.StartAsync();
@@ -183,6 +209,15 @@ public sealed class UpdaterTests : IDisposable
                 Assert.Contains("from source", d.Error);
                 Assert.False((await app.PostAsync("/update/install")).Ok);
                 Assert.Equal("idle", (await app.GetAsync("/update/status")).Expect().GetProperty("state").GetString());
+
+                // What's new since 0.0.1: the published releases after it up to the running version, newest first.
+                static string[] Versions(JsonElement r) => r.GetProperty("releases").EnumerateArray().Select(x => x.GetProperty("version").GetString()!).ToArray();
+                var since = (await app.GetAsync("/update/notes?since=0.0.1")).Expect();
+                Assert.Equal([Updater.CurrentVersion, "0.0.2"], Versions(since));
+                Assert.Equal("- **current** release", since.GetProperty("releases")[0].GetProperty("notes").GetString());
+                // Without "since": just the running version's notes.
+                Assert.Equal([Updater.CurrentVersion], Versions((await app.GetAsync("/update/notes")).Expect()));
+                Assert.Empty(Versions((await app.GetAsync($"/update/notes?since={Updater.CurrentVersion}")).Expect()));
             }
             finally
             {

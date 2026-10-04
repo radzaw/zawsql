@@ -552,6 +552,7 @@ export async function preferencesDialog(app) {
   const font = h('input', { class: 'inp', type: 'number', min: 9, max: 24, value: p.editorFontSize });
   const noWhere = h('input', { type: 'checkbox', checked: p.confirmNoWhere !== false });
   const checkUpdates = h('input', { type: 'checkbox', checked: p.checkUpdates !== false });
+  const showWhatsNew = h('input', { type: 'checkbox', checked: p.showWhatsNew !== false });
   const opt = (pairs, v) => h('select', { class: 'inp' }, pairs.map(([k, l]) => h('option', { value: k, selected: k === String(v) }, l)));
   const kwCase = opt([['upper', 'UPPERCASE'], ['lower', 'lowercase'], ['keep', 'As typed']], p.formatKeywordCase);
   const indent = opt([['2', '2 spaces'], ['4', '4 spaces'], ['tab', 'Tab']], p.formatIndent);
@@ -566,7 +567,8 @@ export async function preferencesDialog(app) {
       h('label', { class: 'frow' }, h('span', null, 'Formatter keywords:'), kwCase),
       h('label', { class: 'frow' }, h('span', null, 'Formatter indent:'), indent),
       h('label', { class: 'frow' }, h('span', null, 'Safety:'), h('label', { class: 'chk' }, noWhere, ' Confirm UPDATE/DELETE without WHERE')),
-      h('label', { class: 'frow' }, h('span', null, 'Updates:'), h('label', { class: 'chk' }, checkUpdates, ' Check for new versions once a day'))),
+      h('label', { class: 'frow' }, h('span', null, 'Updates:'), h('label', { class: 'chk' }, checkUpdates, ' Check for new versions once a day')),
+      h('label', { class: 'frow' }, h('span', null, ''), h('label', { class: 'chk' }, showWhatsNew, " Show what's new after an update"))),
     buttons: [{ label: 'OK', value: true, primary: true }, { label: 'Cancel', value: false }],
   });
   if (!ok) return;
@@ -577,6 +579,7 @@ export async function preferencesDialog(app) {
     editorFontSize: Math.max(9, parseInt(font.value, 10) || 13),
     confirmNoWhere: noWhere.checked,
     checkUpdates: checkUpdates.checked,
+    showWhatsNew: showWhatsNew.checked,
     formatKeywordCase: kwCase.value,
     formatIndent: indent.value,
   });

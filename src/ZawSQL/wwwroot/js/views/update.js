@@ -4,7 +4,7 @@ import { h } from '../util.js';
 import { icon } from '../icons.js';
 import { get, post } from '../api.js';
 import { modal, confirmDlg } from '../dialogs.js';
-import { shouldAutoCheck, worthTelling, renderNotes, progressText } from '../updatelogic.js';
+import { shouldAutoCheck, worthTelling, renderNotes, progressText, compareVersions, whatsNewPlan, releasesPage } from '../updatelogic.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -113,6 +113,8 @@ async function download(app, r, ui) {
 async function restart(app, r, ui) {
   const open = app.conns.size;
   if (open && !(await confirmDlg(`Restart ZawSQL ${r.latest} now? ${open} open connection${open === 1 ? ' is' : 's are'} closed; query tabs, saved queries and settings are kept.`, { ok: 'Restart now' }))) return;
+  // The new version shows these notes once it runs, even if it can't reach GitHub then.
+  app.state.updates.pending = { version: r.latest, name: r.name, notes: r.notes, page: r.page, published: r.published };
   await app.saveState();
   ui.install.disabled = true;
   ui.status.textContent = 'Restarting…';
@@ -132,4 +134,54 @@ async function restart(app, r, ui) {
     } catch { /* not up yet */ }
   }
   ui.status.textContent = `ZawSQL ${r.latest} didn't start within a minute. Close this window and start ZawSQL again.`;
+}
+
+/**
+ * At startup: when this version is newer than the one that ran last time, shows what changed since then, once.
+ * A fresh installation shows nothing; the notes saved by the updater are used when GitHub can't be reached.
+ */
+export async function whatsNewAfterUpdate(app) {
+  const updates = (app.state.updates ||= {});
+  const current = app.version?.version;
+  const plan = whatsNewPlan(updates, current, app.prefs);
+  const pending = updates.pending;
+  if (plan.seen) updates.seenVersion = plan.seen;
+  if (pending && current && compareVersions(current, pending.version) >= 0) delete updates.pending;
+  app.saveStateSoon();
+  if (plan.show) await whatsNewDialog(app, { since: plan.since, pending, quiet: true });
+}
+
+/**
+ * "What's new": the release notes of every release after `since` up to the running version (Help › What's new
+ * shows just the running version's). quiet: if no notes can be found, say so in the status bar instead of a dialog.
+ */
+export async function whatsNewDialog(app, { since = null, pending = null, quiet = false } = {}) {
+  const current = app.version?.version ?? '';
+  let releases = [], error = null;
+  try {
+    releases = (await get('/update/notes', since ? { since } : null, { quiet: true })).releases;
+  } catch (e) {
+    error = e;
+  }
+  if (!releases.length && pending?.version === current) releases = [pending];
+  if (!releases.length) {
+    if (quiet) return app.setStatus(`ZawSQL was updated to ${current}.`);
+    return modal({ title: `ZawSQL ${current}`, width: 460, body: error ? `The release notes could not be loaded: ${error.message}` : `There are no published release notes for ZawSQL ${current}.` });
+  }
+  const all = releasesPage(releases[0].page);
+  const date = r => (r.published ? new Date(r.published).toLocaleDateString() : '');
+  return modal({
+    title: since ? `What's new in ZawSQL ${current}` : `ZawSQL ${current}`,
+    width: 600,
+    className: 'upd-dialog whats-new',
+    body: h('div', { class: 'upd' },
+      since ? h('div', { class: 'muted' }, `Updated from ${since}${releases.length > 1 ? ` · ${releases.length} releases` : ''}`) : '',
+      h('div', { class: 'upd-notes wn-notes' }, releases.map(r => h('section', { class: 'wn-release' },
+        h('div', { class: 'wn-head' }, h('b', null, r.name || `ZawSQL ${r.version}`), h('span', { class: 'muted' }, date(r))),
+        h('div', { html: renderNotes(r.notes) || '<p class="muted">No release notes.</p>' }))))),
+    buttons: [
+      ...(all ? [{ label: 'All releases', align: 'left', onClick: () => { window.open(all, '_blank', 'noopener'); return false; } }] : []),
+      { label: 'Close', value: true, primary: true },
+    ],
+  });
 }

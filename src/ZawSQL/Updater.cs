@@ -237,6 +237,37 @@ public sealed partial class Updater(AppOptions opts)
         signer = OwnSigner.Value?.Name,
     };
 
+    /// <summary>The release list next to the source ("…/releases/latest" → "…/releases"); null for other feeds.</summary>
+    public static string? ListSource => Source.EndsWith("/releases/latest", StringComparison.Ordinal) ? Source[..^"/latest".Length] + "?per_page=50" : null;
+
+    /// <summary>
+    /// Release notes for "What's new": every published release after <paramref name="since"/> up to the running
+    /// version, newest first; without <paramref name="since"/> just the running version's. Pre-releases count only
+    /// when this copy is one.
+    /// </summary>
+    public async Task<object> NotesAsync(string? since, CancellationToken ct)
+    {
+        var list = ListSource ?? throw new ApiException("This update source has no release list.");
+        using var res = await Http.GetAsync(list, ct);
+        if (res.StatusCode == System.Net.HttpStatusCode.NotFound) throw new ApiException("No release has been published yet.");
+        if ((int)res.StatusCode == 403) throw new ApiException("GitHub refused the request (rate limit). Try again later.");
+        res.EnsureSuccessStatusCode();
+        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync(ct));
+        var current = CurrentVersion;
+        var pre = current.Contains('-');
+        static bool Flag(JsonElement r, string name) => r.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.True;
+        var releases = doc.RootElement.EnumerateArray()
+            .Where(r => !Flag(r, "draft") && (pre || !Flag(r, "prerelease")))
+            .Select(ParseRelease)
+            .Where(r => CompareVersions(r.Version, current) <= 0
+                && (since == null ? CompareVersions(r.Version, current) == 0 : CompareVersions(r.Version, since) > 0))
+            .OrderByDescending(r => r.Version, Comparer<string>.Create(CompareVersions))
+            .Take(20)
+            .Select(r => new { version = r.Version, name = r.Name, notes = r.Notes, page = r.Page, published = r.Published })
+            .ToList();
+        return new { current, since, releases };
+    }
+
     public async Task<object> CheckAsync(CancellationToken ct)
     {
         using var res = await Http.GetAsync(Source, ct);

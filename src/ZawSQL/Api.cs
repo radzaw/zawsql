@@ -99,6 +99,7 @@ public static class Api
         // ---- self-update ----
         api.MapGet("/version", (Updater u) => RunSync(() => u.Version()));
         api.MapPost("/update/check", (Updater u, CancellationToken ct) => Run(async _ => await u.CheckAsync(ct)));
+        api.MapGet("/update/notes", (string? since, Updater u, CancellationToken ct) => Run(async _ => await u.NotesAsync(since, ct)));
         api.MapPost("/update/download", (Updater u) => RunSync(() => u.StartDownload()));
         api.MapGet("/update/status", (Updater u) => RunSync(() => u.Status()));
         api.MapPost("/update/install", (Updater u, IHostApplicationLifetime life, HttpContext ctx) => RunSync(() =>

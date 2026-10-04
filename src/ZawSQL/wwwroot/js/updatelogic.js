@@ -48,3 +48,33 @@ export function progressText(received, total) {
   if (!total) return `${mb(received)} MB`;
   return `${mb(received)} of ${mb(total)} MB (${Math.floor((received / total) * 100)}%)`;
 }
+
+/** Compares versions like 1.2.3, v1.10.0, 2.0.0-beta.1 (a pre-release sorts before its release), as Updater.cs does. */
+export function compareVersions(a, b) {
+  const re = /^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:\.(\d+))?(?:-([0-9A-Za-z.-]+))?/;
+  const va = re.exec(String(a).trim()), vb = re.exec(String(b).trim());
+  if (!va || !vb) return String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0;
+  for (let i = 1; i <= 4; i++) {
+    const x = +(va[i] ?? 0), y = +(vb[i] ?? 0);
+    if (x !== y) return x < y ? -1 : 1;
+  }
+  const pa = va[5] ?? null, pb = vb[5] ?? null;
+  if (pa === pb) return 0;
+  if (pa == null) return 1;
+  if (pb == null) return -1;
+  return pa < pb ? -1 : 1;
+}
+
+/**
+ * At startup: whether to show "What's new" (the running version is newer than the one seen last time) and which
+ * version to remember. A first run (nothing seen yet) shows nothing, nor does running an older version.
+ */
+export function whatsNewPlan(updates, current, prefs) {
+  if (!current) return { show: false, seen: null };
+  const seen = updates?.seenVersion;
+  if (!seen || compareVersions(current, seen) <= 0) return { show: false, seen: current };
+  return { show: prefs?.showWhatsNew !== false, since: seen, seen: current };
+}
+
+/** The releases overview page from one release's page (…/releases/tag/v1.2.0 → …/releases). */
+export const releasesPage = page => (page ? String(page).replace(/\/tag\/[^/]+\/?$/, '') : null);
