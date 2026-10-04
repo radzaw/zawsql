@@ -5,6 +5,7 @@ import { get, post } from '../api.js';
 import { RowEditor } from './editing.js';
 import { SqlEditor } from '../editor.js';
 import { splitSql, statementAt } from '../sqlsplit.js';
+import { fillParams } from './queryparams.js';
 import { Grid, sortRows } from '../grid.js';
 import { contextMenu, modal } from '../dialogs.js';
 import { exportGridDialog } from './tools.js';
@@ -206,6 +207,16 @@ export class QueryView {
       stmts = st ? [st] : [];
     }
     if (!stmts.length) return;
+    // :name parameters are asked for first, so the confirmation and the log show the values that run.
+    const written = stmts;
+    if (this.asking) return;
+    this.asking = true;
+    try { stmts = await fillParams(this.app, stmts); } finally { this.asking = false; }
+    if (!stmts) {
+      this.msg.className = 'q-msg';
+      this.msg.textContent = 'Execution cancelled – nothing was run.';
+      return;
+    }
     if (!(await this.app.confirmChanges(sid, { action: 'Execute SQL', statements: stmts.map(s => s.sql), checkWhere: true }))) {
       this.msg.className = 'q-msg';
       this.msg.textContent = 'Execution cancelled – nothing was run.';
@@ -222,7 +233,7 @@ export class QueryView {
     try {
       this.resultSid = sid;
       const r = await post(`/s/${sid}/exec`, { statements: stmts.map(s => s.sql), database: db, maxRows: this.app.prefs.maxResultRows });
-      this.app.addHistory(mode === 'all' ? text : stmts.map(s => s.sql).join(';\n'), db);
+      this.app.addHistory(mode === 'all' ? text : written.map(s => s.sql).join(';\n'), db); // as written, parameters included
       this.showResults(r);
       if (r.errors.length) {
         const er = r.errors[0];
@@ -312,6 +323,9 @@ export class QueryView {
       const st = sel.start === sel.end ? statementAt(stmts, sel.start) : stmts[0];
       if (!st) return this.app.showError(new Error('Put the cursor in the statement to explain.'));
       sql = st.sql;
+      const bound = await fillParams(this.app, [st], { action: 'Explain' });
+      if (!bound) return;
+      sql = bound[0].sql;
     }
     const t0 = Date.now();
     this.msg.className = 'q-msg';

@@ -107,6 +107,35 @@ test('asks before UPDATE/DELETE without WHERE and runs nothing on cancel', async
   expect(await scalar('SELECT COUNT(*) FROM logs')).toBe('2');
 });
 
+test('asks for :name query parameters, checks them and remembers them', async () => {
+  const ta = page.locator('.query-view .sqled-ta').first();
+  await ta.fill('SELECT id, name FROM customers WHERE status = :status ORDER BY id LIMIT :n');
+  await ta.press('F9');
+  const dlg = page.locator('.modal.qp-dialog');
+  await expect(dlg.locator('.modal-title > span')).toHaveText('Query parameters (2)');
+  const value = i => dlg.locator('.qp-value').nth(i);
+  await expect(dlg.locator('.qp-type').nth(0)).toHaveValue('text');
+  await expect(dlg.locator('.qp-type').nth(1)).toHaveValue('number'); // LIMIT only takes a number
+  await value(0).fill("active");
+  await value(1).fill('abc');
+  await dlg.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(dlg.locator('.qp-err').nth(1)).toHaveText('"abc" isn\'t a number.');
+  await expect(dlg.locator('.qp-err').nth(0)).toBeEmpty();
+  await value(1).fill('1');
+  await expect(dlg.locator('.qp-preview')).toHaveText("SELECT id, name FROM customers WHERE status = 'active' ORDER BY id LIMIT 1");
+  await value(1).press('Enter');
+  await expect(dlg).toHaveCount(0);
+  await expect(page.locator('.res-tab', { hasText: 'Result #1 (1r × 2c)' })).toBeVisible();
+  await expect(ta).toHaveValue(/= :status ORDER BY id LIMIT :n$/); // the editor keeps the placeholders
+
+  // The next run offers the values used last; cancelling runs nothing.
+  await ta.press('F9');
+  await expect(value(0)).toHaveValue('active');
+  await expect(value(1)).toHaveValue('1');
+  await dlg.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.locator('.q-msg')).toContainText('cancelled');
+});
+
 test('saves queries to the library and expands snippets', async () => {
   const name = 'Active ' + schema;
   const ta = page.locator('.query-view .sqled-ta').first();

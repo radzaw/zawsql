@@ -178,6 +178,14 @@ export function tokenize(text) {
     if (c === '(' || c === ')' || c === ',' || c === '.') { push('p', c); i++; continue; }
     if (c === ';') { push('semi', ';'); i++; continue; }
     if (c === '?') { push('num', '?'); i++; continue; }
+    // :name query parameters are one value; right after a name ("lbl:" labels) the colon is punctuation.
+    if (c === ':' && /[A-Za-z_]/.test(text[i + 1] ?? '') && !(prev && !sp && (prev.t === 'word' || prev.t === 'qid' || prev.v === ')' || prev.v === ':'))) {
+      let e = i + 1;
+      while (e < n && /\w/.test(text[e])) e++;
+      push('num', text.slice(i, e));
+      i = e;
+      continue;
+    }
     const op = OPS.find(o => text.startsWith(o, i)) || c;
     push('op', op);
     i += op.length;

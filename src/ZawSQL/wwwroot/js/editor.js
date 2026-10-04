@@ -31,7 +31,7 @@ STR_TO_DATE STRCMP SUBDATE SUBSTR SUBSTRING SUBSTRING_INDEX SUM SYSDATE TIME TIM
 TIMESTAMPDIFF TO_BASE64 TO_DAYS TRIM TRUNCATE UCASE UNHEX UNIX_TIMESTAMP UPPER USER UTC_TIMESTAMP UUID UUID_SHORT VERSION WEEK WEEKDAY
 YEAR YEARWEEK`.split(/\s+/));
 
-const TOKEN_RE = /(--(?=\s|$)[^\n]*|#[^\n]*|\/\*[\s\S]*?(?:\*\/|$))|('(?:[^'\\]|\\[\s\S])*(?:'|$)|"(?:[^"\\]|\\[\s\S])*(?:"|$))|(`[^`]*(?:`|$))|(\b0x[0-9a-fA-F]+\b|\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b)|(@@?[\w$.]*|[A-Za-z_$][\w$]*)|(\s+|[\s\S])/g;
+const TOKEN_RE = /(--(?=\s|$)[^\n]*|#[^\n]*|\/\*[\s\S]*?(?:\*\/|$))|('(?:[^'\\]|\\[\s\S])*(?:'|$)|"(?:[^"\\]|\\[\s\S])*(?:"|$))|(`[^`]*(?:`|$))|(\b0x[0-9a-fA-F]+\b|\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b)|((?<![\w$`)\]:]):[A-Za-z_]\w*)|(@@?[\w$.]*|[A-Za-z_$][\w$]*)|(\s+|[\s\S])/g;
 
 export function highlightSql(text) {
   let out = '';
@@ -43,7 +43,8 @@ export function highlightSql(text) {
     else if (m[2]) out += `<span class="t-str">${esc(t)}</span>`;
     else if (m[3]) out += `<span class="t-id">${esc(t)}</span>`;
     else if (m[4]) out += `<span class="t-num">${t}</span>`;
-    else if (m[5]) {
+    else if (m[5]) out += `<span class="t-param">${t}</span>`; // :name query parameter
+    else if (m[6]) {
       const u = t.toUpperCase();
       if (t[0] === '@') out += `<span class="t-var">${esc(t)}</span>`;
       else if (FUNCTIONS.has(u) && /^\s*\(/.test(text.slice(TOKEN_RE.lastIndex, TOKEN_RE.lastIndex + 8))) out += `<span class="t-fn">${t}</span>`;
