@@ -836,3 +836,28 @@ select.cell-inp { padding: 0 2px; }
 .wn-release + .wn-release { border-top: 1px solid var(--border-light); margin-top: 8px; padding-top: 8px; }
 .wn-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; margin-bottom: 2px; }
 .wn-head b { font-size: 13px; }
+
+/* session import */
+.si { display: flex; flex-direction: column; gap: 10px; min-height: 200px; }
+.si-intro { margin: 0; }
+.si-source { border: 1px solid var(--border-light); background: var(--panel); border-radius: 4px; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; }
+.si-source-head { display: flex; gap: 12px; align-items: baseline; }
+.si-source-head b { font-size: 13px; }
+.si-found { display: inline-flex; gap: 4px; align-items: center; color: var(--muted); }
+.si-found .ic { width: 12px; height: 12px; display: block; }
+.si-location { display: flex; gap: 10px; align-items: center; }
+.si-location code { font-family: var(--mono); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; user-select: text; }
+.si-file { display: flex; gap: 12px; align-items: center; justify-content: space-between; }
+.si-file .muted { font-size: 11.5px; }
+.si-file .btn, .si-location .btn { flex: none; }
+.si-table-wrap { max-height: 420px; overflow: auto; border: 1px solid var(--border-light); }
+.si-table { width: 100%; font-size: 12px; }
+.si-table td, .si-table th { padding: 3px 8px; height: auto; vertical-align: top; text-align: left; }
+.si-table td:first-child, .si-table th:first-child { width: 22px; }
+.si-name-cell { display: flex; align-items: center; gap: 6px; }
+.si-name { width: 100%; min-width: 180px; }
+.si-status { max-width: 300px; font-size: 11.5px; }
+.si-exists { color: color-mix(in srgb, var(--status-warning) 70%, var(--text)); }
+.si-skipped td { color: var(--muted); }
+.si-table .um-tag, .si-table .prod-badge, .si-table .ro-badge { margin-left: 6px; }
+.si-table .um-tag, .si-table .prod-badge, .si-table .ro-badge { white-space: nowrap; display: inline-block; }

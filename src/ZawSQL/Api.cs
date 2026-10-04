@@ -129,6 +129,9 @@ public static class Api
             return null;
         }));
         api.MapDelete("/sessions/{id}", (string id, SessionStore st) => RunSync(() => { st.Delete(id); return null; }));
+        api.MapGet("/sessions/import/sources", () => RunSync(() => SessionImport.Detect()));
+        api.MapPost("/sessions/import/read", (ImportReadRequest r, SessionStore st) => RunSync(() => SessionImport.Read(r, st)));
+        api.MapPost("/sessions/import/save", (ImportSaveRequest r, SessionStore st) => RunSync(() => SessionImport.Save(r, st)));
 
         api.MapPost("/connect", (ConnectRequest r, SessionStore st, ConnectionManager cm, CancellationToken ct) => Run(async log =>
         {

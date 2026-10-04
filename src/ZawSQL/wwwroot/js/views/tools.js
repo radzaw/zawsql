@@ -4,6 +4,7 @@ import { icon } from '../icons.js';
 import { get, post, del, urlWithToken, SSH_HOSTKEY_UNKNOWN } from '../api.js';
 import { modal, confirmDlg, alertError } from '../dialogs.js';
 import { splitSql } from '../sqlsplit.js';
+import { importSessionsDialog } from './sessionimport.js';
 
 // ---------------------------------------------------------------- session manager
 
@@ -113,7 +114,7 @@ export async function sessionManager(app) {
     ...Object.values(sshRows),
     h('div', { class: 'sm-sep' }, 'Notes'),
     row('Comment:', f.comment));
-  const empty = h('div', { class: 'placeholder' }, 'Create a new session with the "New" button.');
+  const empty = h('div', { class: 'placeholder' }, 'Create a new session with the "New" button, or bring your sessions from HeidiSQL, DBeaver or MySQL Workbench with "Import…".');
   const right = h('div', { class: 'sm-right' });
 
   function row(label, input) {
@@ -279,6 +280,17 @@ export async function sessionManager(app) {
               syncSsh();
             }
           }
+        },
+      },
+      {
+        label: 'Import…', align: 'left', onClick: async () => {
+          await save();
+          const saved = await importSessionsDialog(app);
+          if (!saved?.length) return false;
+          sessions = await get('/sessions');
+          fill(sessions.find(s => s.id === saved[0].id) || sessions[0] || null);
+          app.setStatus(`Imported ${saved.length} session${saved.length === 1 ? '' : 's'}.`);
+          return false;
         },
       },
       {

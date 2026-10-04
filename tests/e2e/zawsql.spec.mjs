@@ -458,6 +458,51 @@ test('connects through an SSH tunnel after confirming the host key', async () =>
   await expect(page.locator('#log')).toContainText('SSH tunnel ready');
 });
 
+test('imports sessions from a HeidiSQL settings export and connects with one', async () => {
+  // HeidiSQL's password encoding: hex of each character shifted by the salt digit appended at the end (here 1).
+  const heidiPassword = s => [...s].map(c => (c.charCodeAt(0) + 1).toString(16).padStart(2, '0')).join('') + '1';
+  const name = 'Imported ' + schema;
+  const settings = [
+    `Servers\\E2E import\\${name}\\Host<|||>1<|||>${DB.host}`,
+    `Servers\\E2E import\\${name}\\Port<|||>1<|||>${DB.port}`,
+    `Servers\\E2E import\\${name}\\User<|||>1<|||>${DB.user}`,
+    `Servers\\E2E import\\${name}\\Password<|||>1<|||>${heidiPassword(DB.password)}`,
+    `Servers\\E2E import\\${name}\\NetType<|||>3<|||>0`,
+    `Servers\\E2E import\\${name}\\Databases<|||>1<|||>${schema}`,
+    'Servers\\Old PG\\Host<|||>1<|||>pg.example.com',
+    'Servers\\Old PG\\NetType<|||>3<|||>8',
+  ].join('\r\n');
+
+  await page.locator('.menubar-item', { hasText: 'File' }).click();
+  await page.locator('.menu-item', { hasText: 'Session manager' }).click();
+  await btn('Import…').click();
+  const dlg = page.locator('.modal.si-dialog');
+  const [chooser] = await Promise.all([
+    page.waitForEvent('filechooser'),
+    dlg.locator('.si-source[data-source="heidisql"]').getByRole('button', { name: 'Choose file…' }).click(),
+  ]);
+  await chooser.setFiles({ name: 'heidisql-settings.txt', mimeType: 'text/plain', buffer: Buffer.from(settings) });
+  const rows = dlg.locator('.si-table tbody tr');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0).locator('.si-name')).toHaveValue(`E2E import / ${name}`);
+  await expect(rows.nth(0)).toContainText('saved'); // the password came along
+  await expect(rows.nth(1)).toContainText('Skipped: PostgreSQL session');
+  // The suite's admin session is the same server: recognised and not selected, but it can be imported anyway.
+  await expect(rows.nth(0)).toContainText('Already saved as "E2E admin"');
+  await expect(rows.nth(0).locator('input[type=checkbox]')).not.toBeChecked();
+  await rows.nth(0).locator('input[type=checkbox]').check();
+  await dlg.getByRole('button', { name: 'Import 1 session' }).click();
+  await expect(dlg).toHaveCount(0);
+
+  // Back in the session manager, the imported session is selected and opens without asking for a password.
+  await expect(page.locator('.sm-item.sel')).toContainText(`E2E import / ${name}`);
+  await expect(field('Databases:')).toHaveValue(schema);
+  await btn('Open').click();
+  await expect(page.locator('.modal')).toHaveCount(0);
+  await expect(page.locator('.tn.session', { hasText: `E2E import / ${name}` })).toBeVisible();
+  await expect(page.locator('#statusbar')).toContainText('Connected');
+});
+
 test('produced no JavaScript errors', () => {
   expect(pageErrors).toEqual([]);
 });
