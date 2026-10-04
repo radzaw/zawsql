@@ -136,6 +136,43 @@ test('asks for :name query parameters, checks them and remembers them', async ()
   await expect(page.locator('.q-msg')).toContainText('cancelled');
 });
 
+test('manual commit keeps changes in a transaction until commit or rollback', async () => {
+  const ta = page.locator('.query-view .sqled-ta').first();
+  const mode = page.locator('.tab-pane.active .tx-mode');
+  const info = page.locator('.tab-pane.active .tx-info');
+  const status = () => scalar('SELECT status FROM customers WHERE id = 3'); // through another connection
+  await expect(mode).toHaveText('Auto-commit');
+  // Running right after switching (before the tab's connection is open) must still use the transaction.
+  await ta.fill("UPDATE customers SET status = 'blocked' WHERE id = 3");
+  await mode.click();
+  await ta.press('F9');
+  await expect(mode).toHaveText('Manual commit');
+  await expect(info).toHaveText('Transaction open · 1 change · just now');
+  await expect(page.locator('#tabbar .tab.active')).toHaveClass(/tx-open/);
+  expect(await status()).toBe('active'); // nobody else sees it yet
+
+  await page.locator('.tab-pane.active').getByRole('button', { name: 'Rollback', exact: true }).click();
+  await expect(page.locator('.tab-pane.active .q-msg')).toHaveText('Rolled back 1 change.');
+  await expect(info).toHaveText('No open transaction');
+  await expect(page.locator('#tabbar .tab.active')).not.toHaveClass(/tx-open/);
+
+  await ta.press('F9');
+  await page.locator('.tab-pane.active').getByRole('button', { name: 'Commit', exact: true }).click();
+  await expect(page.locator('.tab-pane.active .q-msg')).toHaveText('Committed 1 change.');
+  expect(await status()).toBe('blocked');
+
+  // Leaving manual mode with something open asks what to do with it.
+  await ta.fill("UPDATE customers SET status = 'active' WHERE id = 3");
+  await ta.press('F9');
+  await expect(info).toHaveText(/Transaction open · 1 change/);
+  await mode.click();
+  const dlg = page.locator('.modal', { hasText: 'open transaction with 1 uncommitted change' });
+  await expect(dlg).toContainText('Switching to auto-commit ends it.');
+  await dlg.getByRole('button', { name: 'Commit', exact: true }).click();
+  await expect(mode).toHaveText('Auto-commit');
+  expect(await status()).toBe('active');
+});
+
 test('saves queries to the library and expands snippets', async () => {
   const name = 'Active ' + schema;
   const ta = page.locator('.query-view .sqled-ta').first();

@@ -5,6 +5,7 @@ import { get, post, del, urlWithToken, SSH_HOSTKEY_UNKNOWN } from '../api.js';
 import { modal, confirmDlg, alertError } from '../dialogs.js';
 import { splitSql } from '../sqlsplit.js';
 import { importSessionsDialog } from './sessionimport.js';
+import { TX_DEFAULTS } from '../txlogic.js';
 
 // ---------------------------------------------------------------- session manager
 
@@ -568,6 +569,7 @@ export async function preferencesDialog(app) {
   const opt = (pairs, v) => h('select', { class: 'inp' }, pairs.map(([k, l]) => h('option', { value: k, selected: k === String(v) }, l)));
   const kwCase = opt([['upper', 'UPPERCASE'], ['lower', 'lowercase'], ['keep', 'As typed']], p.formatKeywordCase);
   const indent = opt([['2', '2 spaces'], ['4', '4 spaces'], ['tab', 'Tab']], p.formatIndent);
+  const txDefault = opt(TX_DEFAULTS, p.txDefault || 'auto');
   const ok = await modal({
     title: 'Preferences',
     width: 440,
@@ -579,6 +581,7 @@ export async function preferencesDialog(app) {
       h('label', { class: 'frow' }, h('span', null, 'Formatter keywords:'), kwCase),
       h('label', { class: 'frow' }, h('span', null, 'Formatter indent:'), indent),
       h('label', { class: 'frow' }, h('span', null, 'Safety:'), h('label', { class: 'chk' }, noWhere, ' Confirm UPDATE/DELETE without WHERE')),
+      h('label', { class: 'frow', title: 'Manual commit keeps changes in a transaction until you commit or roll back. Each tab can still be switched with its toolbar button.' }, h('span', null, 'New query tabs:'), txDefault),
       h('label', { class: 'frow' }, h('span', null, 'Updates:'), h('label', { class: 'chk' }, checkUpdates, ' Check for new versions once a day')),
       h('label', { class: 'frow' }, h('span', null, ''), h('label', { class: 'chk' }, showWhatsNew, " Show what's new after an update"))),
     buttons: [{ label: 'OK', value: true, primary: true }, { label: 'Cancel', value: false }],
@@ -594,6 +597,7 @@ export async function preferencesDialog(app) {
     showWhatsNew: showWhatsNew.checked,
     formatKeywordCase: kwCase.value,
     formatIndent: indent.value,
+    txDefault: txDefault.value,
   });
   app.applyPrefs();
   app.saveStateSoon();

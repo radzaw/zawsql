@@ -3,7 +3,7 @@ using MySqlConnector;
 
 namespace ZawSQL;
 
-public sealed record ExplainRequest(string Sql, string? Database, bool Analyze = false);
+public sealed record ExplainRequest(string Sql, string? Database, bool Analyze = false, string? Tab = null);
 
 /// <summary>
 /// Visual EXPLAIN: the JSON plan (parsed in the UI), the classic tabular EXPLAIN and the optimizer's notes for one

@@ -20,6 +20,8 @@ public sealed class DbSession
     /// <summary>SSH tunnel all connections of this session go through, if enabled.</summary>
     public SshTunnel? Tunnel { get; init; }
     public SemaphoreSlim Gate { get; } = new(1, 1);
+    /// <summary>Own connections of query tabs in manual-commit mode, by tab id (see <see cref="TabTransactions"/>).</summary>
+    public ConcurrentDictionary<string, TabConnection> Tabs { get; } = new();
 
     public async Task<IAsyncDisposable> AcquireAsync(CancellationToken ct)
     {
@@ -104,7 +106,7 @@ public sealed class ConnectionManager : IAsyncDisposable
     }
 
     /// <summary>Opens a main connection; read-only sessions make the server itself reject data changes.</summary>
-    static async Task<MySqlConnection> OpenMainAsync(DbSession s, SqlLog log, CancellationToken ct)
+    internal static async Task<MySqlConnection> OpenMainAsync(DbSession s, SqlLog log, CancellationToken ct)
     {
         var c = new MySqlConnection(s.MainConnectionString);
         await c.OpenAsync(ct);
@@ -176,11 +178,25 @@ public sealed class ConnectionManager : IAsyncDisposable
         };
     }
 
+    /// <summary>Closes the manual-commit tab connections a window opened; the server rolls back their open transactions.</summary>
+    public async Task CloseTabsOfPageAsync(string page)
+    {
+        foreach (var s in sessions.Values)
+            foreach (var (tab, t) in s.Tabs.ToArray())
+                if (t.Page == page && s.Tabs.TryRemove(tab, out _))
+                {
+                    try { t.Running?.Cancel(); await t.Conn.DisposeAsync(); } catch (Exception) { /* best effort */ }
+                }
+    }
+
     public async Task DisconnectAsync(string id)
     {
         if (!sessions.TryRemove(id, out var s)) return;
         try { s.Running?.Cancel(); } catch (Exception) { /* best effort */ }
         if (s.Main != null) await s.Main.DisposeAsync();
+        // Closing a tab connection rolls back its open transaction on the server.
+        foreach (var t in s.Tabs.Values) { try { t.Running?.Cancel(); await t.Conn.DisposeAsync(); } catch (Exception) { /* best effort */ } }
+        s.Tabs.Clear();
         await using var pooled = new MySqlConnection(s.MetaConnectionString);
         await MySqlConnection.ClearPoolAsync(pooled);
         s.Tunnel?.Dispose();

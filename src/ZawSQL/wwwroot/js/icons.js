@@ -38,6 +38,8 @@ const P = {
   all: '<path d="M2 3.5v9l4.5-4.5zM6.5 3.5v9L11 8z" fill="#4a7fc1" stroke="#244f86" stroke-linejoin="round"/><path d="M12.5 3v10" stroke="#244f86" stroke-width="1.8"/>',
   check: '<path d="M2.5 8.5 6 12l7.5-8" fill="none" stroke="#2fa84f" stroke-width="2.2"/>',
   cancel: '<path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="#e04b3b" stroke-width="2.2"/>',
+  txauto: '<path d="M9.5 1.5 3.5 9h4.2l-1.2 5.5 6-7.5H8.3z" fill="#3a8ee6" stroke="#22609e" stroke-width=".7" stroke-linejoin="round"/>',
+  txmanual: '<path d="M5.2 7V5.3a2.8 2.8 0 0 1 5.6 0V7" fill="none" stroke="#8a6d00" stroke-width="1.5"/><rect x="3" y="7" width="10" height="7" rx="1.2" fill="#f0c23b" stroke="#8a6d00"/><circle cx="8" cy="10.3" r="1.1" fill="#8a6d00"/>',
   history: '<circle cx="8.5" cy="8" r="5.5" fill="#fff" stroke="#555"/><path d="M8.5 5v3.3l2.2 1.4" fill="none" stroke="#555" stroke-width="1.3"/><path d="M1.5 6.5 3 9l2-2.2" fill="none" stroke="#2f72b5" stroke-width="1.3"/>',
   bookmark: '<path d="M4 1.5h8v13l-4-3.2-4 3.2z" fill="#f2b632" stroke="#a5761a" stroke-linejoin="round"/>',
   snippet: '<rect x="1.5" y="2.5" width="13" height="11" rx="1.5" fill="#e3f0fb" stroke="#2f72b5"/><path d="M5.5 5.5 3.3 8l2.2 2.5M10.5 5.5 12.7 8l-2.2 2.5" fill="none" stroke="#2f72b5" stroke-width="1.3" stroke-linejoin="round"/><path d="M8.8 5 7.2 11" stroke="#2f72b5" stroke-width="1.1"/>',

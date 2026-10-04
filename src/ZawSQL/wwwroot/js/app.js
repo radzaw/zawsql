@@ -22,7 +22,7 @@ import { formatSql } from './sqlformat.js';
 import { sessionManager, confirmHostKey, exportDumpDialog, runSqlFile, createDatabaseDialog, preferencesDialog, aboutDialog } from './views/tools.js';
 
 const TYPE_LABEL = { table: 'Table', view: 'View', procedure: 'Procedure', function: 'Function', trigger: 'Trigger', event: 'Event' };
-const DEFAULT_PREFS = { rowsPerPage: 1000, maxResultRows: 10000, theme: 'system', editorFontSize: 13, confirmNoWhere: true, formatKeywordCase: 'upper', formatIndent: '2', checkUpdates: true, showWhatsNew: true };
+const DEFAULT_PREFS = { rowsPerPage: 1000, maxResultRows: 10000, theme: 'system', editorFontSize: 13, confirmNoWhere: true, formatKeywordCase: 'upper', formatIndent: '2', checkUpdates: true, showWhatsNew: true, txDefault: 'auto' };
 
 // ---------------------------------------------------------------- tabs
 
@@ -104,6 +104,7 @@ class Tabs {
 
   setModified(id, on) { this.tabs.get(id)?.el.classList.toggle('modified', !!on); }
   setBusy(id, on) { this.tabs.get(id)?.el.classList.toggle('busy', !!on); }
+  setFlag(id, cls, on) { this.tabs.get(id)?.el.classList.toggle(cls, !!on); }
   activeView() { return this.tabs.get(this.active)?.view; }
 }
 
@@ -166,7 +167,11 @@ class App {
     document.getElementById('db-filter').addEventListener('input', e => { this.tree.dbFilter = e.target.value; this.tree.render(); });
     document.getElementById('tbl-filter').addEventListener('input', e => { this.tree.tblFilter = e.target.value; this.tree.render(); });
     document.addEventListener('keydown', e => this.globalKey(e));
-    window.addEventListener('beforeunload', () => this.saveState());
+    window.addEventListener('beforeunload', e => {
+      this.saveState();
+      // Closing the window closes the connections, which rolls back open transactions: let the browser ask.
+      if (this.queryViews.some(v => v.tx?.open)) e.preventDefault();
+    });
 
     startHeartbeat();
     setTimeout(() => autoCheckUpdates(this), 15_000);
@@ -290,6 +295,10 @@ class App {
         { label: 'Query history…', icon: 'history', onClick: () => this.queryForRun()?.showHistory() },
         { label: 'Explain current statement', icon: 'explain', shortcut: 'Ctrl+Shift+E', disabled: !s.sid, onClick: () => this.queryForRun()?.explain() },
         { label: 'Format SQL', icon: 'format', shortcut: 'Ctrl+Shift+F', onClick: () => { const v = this.queryForRun(); if (v) this.formatEditor(v.editor); } },
+        '-',
+        { label: 'Manual commit (transaction)', icon: 'txmanual', checked: !!this.activeQuery()?.tx, disabled: !s.sid, onClick: () => this.queryForRun()?.toggleManual() },
+        { label: 'Commit', icon: 'check', disabled: !this.activeQuery()?.tx?.open, onClick: () => this.activeQuery()?.commit() },
+        { label: 'Rollback', icon: 'cancel', disabled: !this.activeQuery()?.tx?.open, onClick: () => this.activeQuery()?.rollback() },
         '-',
         { label: 'Save to library…', icon: 'bookmark', shortcut: 'Ctrl+S', onClick: () => this.queryForRun()?.saveToLibrary() },
         { label: 'Save to library as new…', shortcut: 'Ctrl+Shift+S', onClick: () => this.queryForRun()?.saveToLibrary({ asNew: true }) },
@@ -432,7 +441,14 @@ class App {
 
   async disconnect(sid) {
     if (!sid) return;
+    const open = this.queryViews.filter(v => v.tx?.sid === sid && v.tx.open);
+    if (open.length) {
+      const n = open.reduce((s, v) => s + v.tx.changes, 0);
+      const msg = `${open.length === 1 ? 'A query tab has' : `${open.length} query tabs have`} an open transaction on this session (${n} uncommitted change${n === 1 ? '' : 's'}). Disconnecting rolls ${open.length === 1 ? 'it' : 'them'} back.`;
+      if (!(await confirmDlg(msg, { ok: 'Disconnect and roll back', danger: true }))) return;
+    }
     try { await post(`/s/${sid}/disconnect`); } catch { /* already gone */ }
+    for (const v of this.queryViews) if (v.tx?.sid === sid) { v.tx = null; v.renderTx(); }
     this.conns.delete(sid);
     this.prodAllowed.delete(sid);
     this.tree.removeSession(sid);
@@ -599,6 +615,12 @@ class App {
           this.saveStateSoon();
           return false;
         }
+        // An open transaction is committed or rolled back first; then the tab closes for real.
+        if (v.tx?.open) {
+          v.endTransaction('Closing the tab ends it.').then(ok => { if (ok) this.tabs.close(id); });
+          return false;
+        }
+        if (v.tx) v.endTransaction(''); // nothing open: just closes its connection
         this.queryViews.splice(this.queryViews.indexOf(v), 1);
         v.dispose();
         this.saveStateSoon();

@@ -59,6 +59,8 @@ public static class AppHost
         });
 
         Api.Map(app);
+        // A closed window's manual-commit tabs are closed too, which rolls back their transactions (and frees their locks).
+        app.Services.GetRequiredService<Heartbeat>().PageGone += page => _ = app.Services.GetRequiredService<ConnectionManager>().CloseTabsOfPageAsync(page);
         app.Lifetime.ApplicationStopped.Register(() =>
         {
             app.Services.GetRequiredService<ImportStore>().DisposeAsync().AsTask().Wait();

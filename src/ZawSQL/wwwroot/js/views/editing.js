@@ -11,6 +11,8 @@ export class RowEditor {
    * @param opts.colName         (c) => table column name of grid column c, or null if not a table column
    * @param opts.applyServerRow  (row, serverRow) => void; copies the re-read table row (table column order) into the grid row
    * @param opts.onRowsChanged   optional () => void after rows were inserted or removed
+   * @param opts.afterWrite      optional () => void after a change reached the server (manual-commit tabs refresh their state)
+   * target() may include `tab`: the manual-commit query tab whose connection (and transaction) the edits use
    */
   constructor(app, opts) {
     this.app = app;
@@ -65,7 +67,8 @@ export class RowEditor {
     for (const c of (row.$new ? row.$set : row.$changed) || []) values[this.colName(c)] = row[c];
     const op = row.$new ? { op: 'insert', values } : { op: 'update', original: this.rowObj(row.$orig), values };
     try {
-      const [res] = await post(`/s/${t.sid}/rows`, { db: t.db, table: t.table, ops: [op] });
+      const [res] = await post(`/s/${t.sid}/rows`, { db: t.db, table: t.table, ops: [op], tab: t.tab });
+      this.afterWrite?.();
       if (res.row) this.applyServerRow(row, res.row);
       delete row.$orig; delete row.$changed; delete row.$set; delete row.$new; delete row.$dirty;
       this.grid.render();
@@ -133,7 +136,10 @@ export class RowEditor {
     if (!(await confirmDlg(this.app.prodWarn(t.sid) + `Delete ${idx.length} selected row(s) from ${t.table}?`, { ok: 'Delete', danger: true, kind: 'warning' }))) return;
     const ops = idx.map(i => this.rows[i]).filter(r => !r.$new).map(r => ({ op: 'delete', original: this.rowObj(r.$orig || r) }));
     try {
-      if (ops.length) await post(`/s/${t.sid}/rows`, { db: t.db, table: t.table, ops });
+      if (ops.length) {
+        await post(`/s/${t.sid}/rows`, { db: t.db, table: t.table, ops, tab: t.tab });
+        this.afterWrite?.();
+      }
     } catch (e) {
       this.app.showError(e);
       return;

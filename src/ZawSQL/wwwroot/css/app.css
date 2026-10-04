@@ -875,3 +875,11 @@ select.cell-inp { padding: 0 2px; }
 .qp-err:empty { display: none; }
 .qp-hint { font-size: 11px; }
 .qp-preview { margin: 0; font-family: var(--mono); font-size: 11.5px; background: var(--panel); border: 1px solid var(--border-light); border-radius: 3px; padding: 6px 8px; max-height: 160px; overflow: auto; white-space: pre-wrap; word-break: break-word; user-select: text; }
+
+/* manual-commit query tabs */
+.tbtn.tx-mode.on { background: color-mix(in srgb, var(--status-warning) 22%, transparent); border-color: color-mix(in srgb, var(--status-warning) 60%, transparent); }
+.tx-info { font-size: 11.5px; margin-left: 6px; white-space: nowrap; }
+.tx-info.tx-idle { color: var(--muted); }
+.tx-info.tx-open { color: color-mix(in srgb, var(--status-warning) 65%, var(--text)); font-weight: 600; }
+.tx-info.tx-long { color: var(--status-critical); font-weight: 600; }
+.tab.tx-open .tab-title::after { content: '●'; color: var(--status-warning); margin-left: 5px; font-size: 10px; vertical-align: 1px; }

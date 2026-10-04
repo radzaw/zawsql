@@ -1,13 +1,14 @@
 // "Query" tabs: SQL editor with multiple result sets.
 import { h, esc, fmtNum, fmtSecs, fmtElapsed, makeSplitter, pickFile, saveTextFile, isNumericKind, parseEnum } from '../util.js';
 import { icon } from '../icons.js';
-import { get, post } from '../api.js';
+import { get, post, pageId } from '../api.js';
 import { RowEditor } from './editing.js';
 import { SqlEditor } from '../editor.js';
 import { splitSql, statementAt } from '../sqlsplit.js';
 import { fillParams } from './queryparams.js';
 import { Grid, sortRows } from '../grid.js';
-import { contextMenu, modal } from '../dialogs.js';
+import { contextMenu, modal, confirmDlg } from '../dialogs.js';
+import { wantsManual, txStatus, endQuestion } from '../txlogic.js';
 import { exportGridDialog } from './tools.js';
 import { attachLibraryPanel, editQueryDialog } from './library.js';
 import { findSnippet } from '../library.js';
@@ -39,6 +40,14 @@ export class QueryView {
     this.stopBtn = btn('stop', '', 'Stop running query', () => this.stop());
     this.stopBtn.disabled = true;
     this.dbLabel = h('span', { class: 'muted' });
+    // Manual commit: the tab gets its own connection and keeps changes in a transaction until Commit / Rollback.
+    this.tx = null; // { sid, open, changes, since, threadId } while in manual-commit mode
+    this.txChosen = false; // the user picked the mode, so the default from Preferences no longer applies
+    this.txBtn = h('button', { class: 'tbtn tx-mode', onclick: () => this.toggleManual() });
+    this.commitBtn = btn('check', 'Commit', 'Make the changes of the open transaction permanent', () => this.commit());
+    this.rollbackBtn = btn('cancel', 'Rollback', 'Undo the changes of the open transaction', () => this.rollback());
+    this.txInfo = h('span', { class: 'tx-info' });
+    this.txTimer = setInterval(() => { if (this.tx?.open) this.renderTx(); }, 30_000);
     const toolbar = h('div', { class: 'viewbar' }, this.runBtn, this.runSelBtn, this.runCurBtn, this.stopBtn, h('span', { class: 'sep' }),
       btn('open', '', 'Load SQL file', () => this.loadFile()),
       btn('save', '', 'Save SQL file', () => this.saveFile()),
@@ -47,6 +56,7 @@ export class QueryView {
       (this.libBtn = btn('library', '', 'Saved queries and snippets', () => app.toggleLibrary())),
       btn('format', '', 'Format SQL – the selection, or everything (Ctrl+Shift+F)', () => app.formatEditor(this.editor)),
       btn('explain', 'Explain', 'Visual EXPLAIN of the statement at the cursor (Ctrl+Shift+E)', () => this.explain()),
+      h('span', { class: 'sep' }), this.txBtn, this.commitBtn, this.rollbackBtn, this.txInfo,
       h('div', { class: 'grow' }), this.dbLabel);
 
     this.edWrap = h('div', { class: 'q-editor' }, this.editor.el);
@@ -73,7 +83,9 @@ export class QueryView {
     // Results from a single table that include its key can be edited in place (see prepareEditing).
     this.rowEditor = new RowEditor(app, {
       grid: this.grid,
-      target: () => this.editTarget,
+      // In manual-commit mode, result edits go through the tab's connection and join its transaction.
+      target: () => this.editTarget && { ...this.editTarget, tab: this.txTabFor(this.editTarget.sid) },
+      afterWrite: () => this.refreshTx(),
       colName: c => this.editCols?.[c] ?? null,
       applyServerRow: (row, sr) => this.editTableCols.forEach((name, i) => {
         this.editCols.forEach((n, j) => { if (n === name) row[j] = sr[i]; });
@@ -106,6 +118,7 @@ export class QueryView {
         this.run('current');
       }
     });
+    this.renderTx();
   }
 
   onShow() {
@@ -119,6 +132,127 @@ export class QueryView {
   dispose() {
     this.offLibrary();
     this.libPanel?.dispose();
+    clearInterval(this.txTimer);
+  }
+
+  // ---------- manual commit ----------
+
+  /** The tab id to send with requests on `sid` while this tab is in manual-commit mode there. */
+  txTabFor(sid) { return this.tx && this.tx.sid === sid ? this.id : undefined; }
+
+  renderTx() {
+    const manual = !!this.tx;
+    this.txBtn.innerHTML = icon(manual ? 'txmanual' : 'txauto') + `<span>${manual ? 'Manual commit' : 'Auto-commit'}</span>`;
+    this.txBtn.title = manual
+      ? 'Manual commit: changes stay in a transaction until you commit or roll back. Click for auto-commit.'
+      : 'Auto-commit: every statement is committed right away. Click to keep changes in a transaction until you commit.';
+    this.txBtn.classList.toggle('on', manual);
+    for (const b of [this.commitBtn, this.rollbackBtn]) {
+      b.style.display = manual ? '' : 'none';
+      b.disabled = !this.tx?.open || this.running;
+    }
+    const st = txStatus(this.tx);
+    this.txInfo.textContent = manual ? st.text : '';
+    this.txInfo.className = `tx-info tx-${st.severity}`;
+    this.txInfo.title = manual
+      ? `This tab has its own connection (thread ${this.tx.threadId}) to ${this.app.conns.get(this.tx.sid)?.name ?? 'the server'}. Other tabs and the Data tab don't see its changes until they are committed.${st.severity === 'long' ? ' A transaction open this long may hold locks that block others.' : ''}`
+      : '';
+    this.app.tabs.setFlag(this.id, 'tx-open', !!this.tx?.open);
+  }
+
+  async startManual(sid) {
+    const st = await post(`/s/${sid}/tx/${this.id}/start`, { database: this.app.sel.db, page: pageId });
+    this.tx = { sid, ...st };
+    this.renderTx();
+  }
+
+  async toggleManual() {
+    if (this.running) return;
+    this.txChosen = true;
+    try {
+      if (this.tx) {
+        if (await this.endTransaction('Switching to auto-commit ends it.')) this.app.setStatus('Auto-commit: every statement is committed right away.');
+        return;
+      }
+      const sid = this.app.sel.sid;
+      if (!sid) return this.app.showError(new Error('Not connected. Open a session first.'));
+      // A run started meanwhile waits for this, so nothing slips through in auto-commit.
+      this.txPending = this.startManual(sid);
+      try { await this.txPending; } finally { this.txPending = null; }
+      this.app.setStatus('Manual commit: changes in this tab stay uncommitted until you commit.');
+    } catch (e) {
+      this.app.showError(e);
+    }
+  }
+
+  /** Asks before making changes permanent on a production server. */
+  async confirmCommit() {
+    if (!this.app.conns.get(this.tx.sid)?.production) return true;
+    return confirmDlg(this.app.prodWarn(this.tx.sid) + `Commit ${this.tx.changes} change${this.tx.changes === 1 ? '' : 's'}?`, { ok: 'Commit' });
+  }
+
+  /** Leaves manual-commit mode; an open transaction is committed or rolled back as the user decides. False when cancelled. */
+  async endTransaction(reason) {
+    if (!this.tx) return true;
+    const sid = this.tx.sid;
+    let then = null;
+    if (this.tx.open && this.app.conns.has(sid)) {
+      then = await modal({
+        title: 'Open transaction',
+        body: endQuestion(this.tx, reason),
+        buttons: [{ label: 'Commit', value: 'commit', primary: true }, { label: 'Roll back', value: 'rollback' }, { label: 'Cancel', value: null }],
+      });
+      if (!then || (then === 'commit' && !(await this.confirmCommit()))) return false;
+    }
+    if (this.app.conns.has(sid)) {
+      try {
+        await post(`/s/${sid}/tx/${this.id}/close${then ? `?then=${then}` : ''}`);
+      } catch (e) {
+        this.app.showError(e);
+        await this.refreshTx();
+        return false;
+      }
+    }
+    this.tx = null;
+    this.renderTx();
+    return true;
+  }
+
+  async commit() {
+    if (!this.tx?.open || this.running || !(await this.confirmCommit())) return;
+    await this.finish('commit');
+  }
+
+  async rollback() {
+    if (!this.tx?.open || this.running) return;
+    await this.finish('rollback');
+  }
+
+  async finish(action) {
+    try {
+      const r = await post(`/s/${this.tx.sid}/tx/${this.id}/${action}`);
+      this.tx = { ...this.tx, ...r.transaction };
+      const what = `${r.changes} change${r.changes === 1 ? '' : 's'}`;
+      this.msg.className = 'q-msg';
+      this.msg.textContent = action === 'commit' ? `Committed ${what}.` : `Rolled back ${what}.`;
+      this.app.setStatus(this.msg.textContent);
+    } catch (e) {
+      this.app.showError(e);
+      await this.refreshTx();
+    }
+    this.renderTx();
+  }
+
+  /** Re-reads the transaction state from the server (after grid edits or errors). */
+  async refreshTx() {
+    if (!this.tx) return;
+    try {
+      const st = await get(`/s/${this.tx.sid}/tx/${this.id}`, null, { quiet: true });
+      this.tx = st.manual ? { ...this.tx, ...st } : null;
+    } catch {
+      this.tx = null; // the session is gone: so is the transaction
+    }
+    this.renderTx();
   }
 
   // ---------- library ----------
@@ -192,8 +326,19 @@ export class QueryView {
 
   async run(mode) {
     if (this.running) return;
+    if (this.txPending) {
+      // Manual commit is being switched on: run once it is, or not at all if that failed.
+      try { await this.txPending; } catch { return; }
+    }
     const { sid, db } = this.app.sel;
     if (!sid) return this.app.showError(new Error('Not connected. Open a session first.'));
+    if (this.tx && !this.app.conns.has(this.tx.sid)) { this.tx = null; this.renderTx(); } // its session was disconnected
+    if (this.tx && this.tx.sid !== sid) {
+      return this.app.showError(new Error(`This tab is in manual-commit mode on "${this.app.conns.get(this.tx.sid)?.name}". Select that session to continue, or end the transaction first.`));
+    }
+    if (!this.tx && !this.txChosen && wantsManual(this.app.prefs.txDefault, this.app.conns.get(sid))) {
+      try { await this.startManual(sid); } catch (e) { return this.app.showError(e); }
+    }
     let text = this.editor.value;
     let base = 0;
     const sel = this.editor.selection();
@@ -232,9 +377,13 @@ export class QueryView {
     this.app.setStatus('Executing query…');
     try {
       this.resultSid = sid;
-      const r = await post(`/s/${sid}/exec`, { statements: stmts.map(s => s.sql), database: db, maxRows: this.app.prefs.maxResultRows });
+      const r = await post(`/s/${sid}/exec`, { statements: stmts.map(s => s.sql), database: db, maxRows: this.app.prefs.maxResultRows, tab: this.txTabFor(sid) });
       this.app.addHistory(mode === 'all' ? text : written.map(s => s.sql).join(';\n'), db); // as written, parameters included
+      if (r.transaction) this.tx = { ...this.tx, ...r.transaction };
       this.showResults(r);
+      // What happened to the open transaction (COMMIT typed in the editor, DDL that committed implicitly, a deadlock …).
+      for (const note of r.notes || []) this.app.log.info(note);
+      if (r.notes?.length) this.msg.textContent += `   ${r.notes.join(' ')}`;
       if (r.errors.length) {
         const er = r.errors[0];
         const st = stmts[er.statement];
@@ -248,6 +397,7 @@ export class QueryView {
       this.msg.className = 'q-msg err';
       this.msg.textContent = e.message;
       this.app.showError(e);
+      if (this.tx) this.refreshTx(); // e.g. the connection was lost and its transaction rolled back
     } finally {
       clearInterval(this.timer);
       this.running = false;
@@ -259,12 +409,14 @@ export class QueryView {
     for (const b of [this.runBtn, this.runSelBtn, this.runCurBtn]) b.disabled = on;
     this.stopBtn.disabled = !on;
     this.app.tabs.setBusy(this.id, on);
+    this.renderTx();
   }
 
   async stop() {
     const { sid } = this.app.sel;
     if (!sid) return;
-    try { await post(`/s/${sid}/cancel`); } catch (e) { this.app.showError(e); }
+    const tab = this.txTabFor(sid);
+    try { await post(`/s/${sid}/cancel${tab ? `?tab=${tab}` : ''}`); } catch (e) { this.app.showError(e); }
   }
 
   showResults(r) {
@@ -315,6 +467,7 @@ export class QueryView {
 
   /** Visual EXPLAIN of the statement at the cursor (or the selection); `sql` explains that text instead. */
   async explain({ analyze = false, sql = null } = {}) {
+    if (this.txPending) { try { await this.txPending; } catch { return; } }
     const { sid, db } = this.app.sel;
     if (!sid) return this.app.showError(new Error('Not connected. Open a session first.'));
     if (sql == null) {
@@ -331,7 +484,7 @@ export class QueryView {
     this.msg.className = 'q-msg';
     this.msg.textContent = analyze ? 'Running the statement to measure it…' : 'Explaining…';
     try {
-      const r = await post(`/s/${sid}/explain`, { sql, database: db, analyze });
+      const r = await post(`/s/${sid}/explain`, { sql, database: db, analyze, tab: this.txTabFor(sid) });
       this.plan = r;
       this.planView.show(r);
       this.renderResTabs();

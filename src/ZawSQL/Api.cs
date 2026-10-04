@@ -8,8 +8,10 @@ namespace ZawSQL;
 
 public sealed record ConnectRequest(string? SessionId, SessionProfile? Profile, string? Password, string? SshSecret = null);
 public sealed record HostKeyRequest(string? Fingerprint);
-public sealed record ExecRequest(string[] Statements, string? Database, int MaxRows = 10000, bool StopOnError = true);
-public sealed record RowsRequest(string Db, string Table, List<RowOp> Ops);
+/// <summary>Tab: set when the query tab is in manual-commit mode; the statements then run on its own connection.</summary>
+public sealed record ExecRequest(string[] Statements, string? Database, int MaxRows = 10000, bool StopOnError = true, string? Tab = null);
+public sealed record RowsRequest(string Db, string Table, List<RowOp> Ops, string? Tab = null);
+public sealed record TxStartRequest(string? Database, string? Page = null);
 public sealed record KillRequest(long Id);
 
 public static class Api
@@ -58,6 +60,15 @@ public static class Api
             await using var c = await cm.OpenMetaAsync(ses, ct);
             return await body(c, ses, log);
         });
+
+    /// <summary>
+    /// The manual-commit connection of a query tab, when the request names one. A tab that expects one but has none
+    /// (the session reconnected) is an error, never a silent fallback to auto-commit.
+    /// </summary>
+    static TabConnection? TabFor(DbSession s, string? tab) =>
+        tab == null ? null
+        : s.Tabs.TryGetValue(tab, out var t) ? t
+        : throw new ApiException("This tab's manual-commit connection is gone, so any open transaction was rolled back. Switch manual commit on again.");
 
     static (SessionProfile, string, string?) ResolveProfile(ConnectRequest r, SessionStore st)
     {
@@ -231,19 +242,26 @@ public static class Api
             await using (var mc = await cm.OpenMetaAsync(ses, ct))
                 m = await TableMeta.LoadAsync(mc, null, req.Db, req.Table, ct);
             if (m.IsView) throw new ApiException("Views are read-only in the data grid.");
-            await using var lease = await ses.AcquireAsync(ct);
-            var c = await cm.EnsureMainAsync(ses, log, ct);
+            // Edits in the result grid of a manual-commit tab become part of its transaction (and can't wait for its own locks).
+            var tab = TabFor(ses, req.Tab);
+            await using var lease = tab != null ? await tab.AcquireAsync(ct) : await ses.AcquireAsync(ct);
+            var c = tab != null ? await TabTransactions.EnsureAsync(ses, tab, log, ct) : await cm.EnsureMainAsync(ses, log, ct);
             var results = new List<object>();
             foreach (var op in req.Ops)
+            {
                 results.Add(await RowWriter.ApplyAsync(c, log, m, req.Db, req.Table, op, ct));
+                tab?.Changed();
+            }
             return results;
         }));
 
         s.MapPost("/exec", (string sid, ExecRequest req, ConnectionManager cm, CancellationToken ct) => Run(async log =>
         {
             var ses = cm.Get(sid);
-            await using var lease = await ses.AcquireAsync(ct);
-            var c = await cm.EnsureMainAsync(ses, log, ct);
+            var tab = TabFor(ses, req.Tab);
+            await using var lease = tab != null ? await tab.AcquireAsync(ct) : await ses.AcquireAsync(ct);
+            var c = tab != null ? await TabTransactions.EnsureAsync(ses, tab, log, ct) : await cm.EnsureMainAsync(ses, log, ct);
+            var notes = new List<string>();
             if (!string.IsNullOrEmpty(req.Database) && c.Database != req.Database)
             {
                 log.Add("USE " + Db.Q(req.Database));
@@ -271,44 +289,67 @@ public static class Api
                 await using var cmd = c.CreateCommand();
                 cmd.CommandText = sql;
                 cmd.CommandTimeout = 0;
-                ses.Running = cmd;
+                if (tab != null) tab.Running = cmd; else ses.Running = cmd;
                 try
                 {
-                    await using var r = await cmd.ExecuteReaderAsync(ct);
-                    do
+                    await using (var r = await cmd.ExecuteReaderAsync(ct))
                     {
-                        if (r.FieldCount > 0)
+                        do
                         {
-                            var rs = await Values.ReadAsync(r, Math.Max(0, req.MaxRows), ct);
-                            sets.Add(new { statement = i, sql, columns = rs.Columns, rows = rs.Rows, truncated = rs.Truncated, ms = sw.Elapsed.TotalMilliseconds });
-                        }
-                    } while (await r.NextResultAsync(ct));
-                    if (r.RecordsAffected > 0) affected += r.RecordsAffected;
+                            if (r.FieldCount > 0)
+                            {
+                                var rs = await Values.ReadAsync(r, Math.Max(0, req.MaxRows), ct);
+                                sets.Add(new { statement = i, sql, columns = rs.Columns, rows = rs.Rows, truncated = rs.Truncated, ms = sw.Elapsed.TotalMilliseconds });
+                            }
+                        } while (await r.NextResultAsync(ct));
+                        if (r.RecordsAffected > 0) affected += r.RecordsAffected;
+                    }
                     if (cmd.LastInsertedId > 0) insertId = cmd.LastInsertedId;
                     executed++;
+                    if (tab != null)
+                    {
+                        var effect = TabTransactions.Classify(sql);
+                        if (effect == TxEffect.Autocommit)
+                        {
+                            // SET autocommit = 1 would commit and leave manual mode behind the UI's back.
+                            if (tab.Changes > 0) notes.Add($"Changing autocommit committed the open transaction ({tab.Changes} change{(tab.Changes == 1 ? "" : "s")}).");
+                            tab.Reset();
+                            await Db.ExecAsync(c, log, "SET autocommit = 0", ct);
+                            notes.Add("This tab keeps autocommit off; switch to Auto-commit with the toolbar button instead.");
+                        }
+                        else if (TabTransactions.Apply(tab, sql, effect) is { } note) notes.Add(note);
+                    }
                 }
                 catch (MySqlException ex) when (!ct.IsCancellationRequested)
                 {
                     log.Add($"/* SQL Error ({ex.Number}): {ex.Message} */");
                     if (errors.Count < 100) errors.Add(new { statement = i, message = ex.Message, code = ex.Number });
+                    if (tab != null && ex.Number == 1213 && tab.Changes > 0)
+                    {
+                        notes.Add($"The server rolled back the whole transaction ({tab.Changes} change{(tab.Changes == 1 ? "" : "s")}) to resolve a deadlock.");
+                        tab.Reset();
+                    }
+                    else if (tab != null && ex.Number == 1205 && tab.Changes > 0)
+                        notes.Add("Only the statement that waited was undone; the transaction is still open.");
                     if (req.StopOnError) break;
                 }
                 finally
                 {
-                    ses.Running = null;
+                    if (tab != null) tab.Running = null; else ses.Running = null;
                 }
             }
             var ms = sw.Elapsed.TotalMilliseconds;
             var currentDb = await Db.ScalarAsync(c, null, "SELECT DATABASE()", ct);
-            return new { resultSets = sets, statements = req.Statements.Length, executed, affected, insertId, errors, database = currentDb, ms };
+            return new { resultSets = sets, statements = req.Statements.Length, executed, affected, insertId, errors, database = currentDb, ms, transaction = tab?.State(), notes };
         }));
 
         // Visual EXPLAIN on the session's own connection, so temporary tables and variables are visible.
         s.MapPost("/explain", (string sid, ExplainRequest req, ConnectionManager cm, CancellationToken ct) => Run(async log =>
         {
             var ses = cm.Get(sid);
-            await using var lease = await ses.AcquireAsync(ct);
-            var c = await cm.EnsureMainAsync(ses, log, ct);
+            var tab = TabFor(ses, req.Tab);
+            await using var lease = tab != null ? await tab.AcquireAsync(ct) : await ses.AcquireAsync(ct);
+            var c = tab != null ? await TabTransactions.EnsureAsync(ses, tab, log, ct) : await cm.EnsureMainAsync(ses, log, ct);
             if (!string.IsNullOrEmpty(req.Database) && c.Database != req.Database)
             {
                 log.Add("USE " + Db.Q(req.Database));
@@ -317,11 +358,25 @@ public static class Api
             return await Explainer.ExplainAsync(c, log, req.Sql, req.Analyze, ct);
         }));
 
-        s.MapPost("/cancel", (string sid, ConnectionManager cm) => RunSync(() =>
+        s.MapPost("/cancel", (string sid, string? tab, ConnectionManager cm) => RunSync(() =>
         {
-            cm.Get(sid).Running?.Cancel();
+            var ses = cm.Get(sid);
+            if (tab != null && ses.Tabs.TryGetValue(tab, out var t)) t.Running?.Cancel();
+            else ses.Running?.Cancel();
             return null;
         }));
+
+        // ---- manual-commit query tabs: their own connection with autocommit off ----
+        s.MapGet("/tx/{tab}", (string sid, string tab, ConnectionManager cm) => RunSync(() =>
+            cm.Get(sid).Tabs.TryGetValue(tab, out var t) ? t.State() : new { manual = false }));
+        s.MapPost("/tx/{tab}/start", (string sid, string tab, TxStartRequest req, ConnectionManager cm, CancellationToken ct) => Run(async log =>
+            (await TabTransactions.StartAsync(cm.Get(sid), tab, req.Database, req.Page, log, ct)).State()));
+        s.MapPost("/tx/{tab}/commit", (string sid, string tab, ConnectionManager cm, CancellationToken ct) => Run(async log =>
+            await TabTransactions.FinishAsync(cm.Get(sid), tab, commit: true, log, ct)));
+        s.MapPost("/tx/{tab}/rollback", (string sid, string tab, ConnectionManager cm, CancellationToken ct) => Run(async log =>
+            await TabTransactions.FinishAsync(cm.Get(sid), tab, commit: false, log, ct)));
+        s.MapPost("/tx/{tab}/close", (string sid, string tab, string? then, ConnectionManager cm, CancellationToken ct) => Run(async log =>
+            await TabTransactions.CloseAsync(cm.Get(sid), tab, then, log, ct)));
 
         s.MapGet("/host", (string sid, string kind, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, _, log) =>
         {

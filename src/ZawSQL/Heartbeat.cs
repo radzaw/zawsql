@@ -10,6 +10,8 @@ public sealed class Heartbeat
 {
     readonly ConcurrentDictionary<string, DateTime> pages = new();
     readonly DateTime started = DateTime.UtcNow;
+    /// <summary>A window closed or stopped pinging (its manual-commit tabs must not keep transactions open).</summary>
+    public event Action<string>? PageGone;
     volatile bool everConnected;
 
     // Browsers throttle timers of hidden/minimized windows to about once a minute, hence the generous timeout.
@@ -26,7 +28,7 @@ public sealed class Heartbeat
 
     public void Bye(string? page)
     {
-        if (!string.IsNullOrEmpty(page)) pages.TryRemove(page, out _);
+        if (!string.IsNullOrEmpty(page) && pages.TryRemove(page, out _)) PageGone?.Invoke(page);
     }
 
     public async Task MonitorAsync(IHostApplicationLifetime life)
@@ -37,7 +39,7 @@ public sealed class Heartbeat
             await Task.Delay(1000);
             var now = DateTime.UtcNow;
             foreach (var (id, last) in pages)
-                if (now - last > PageTimeout) pages.TryRemove(id, out _);
+                if (now - last > PageTimeout && pages.TryRemove(id, out _)) PageGone?.Invoke(id);
 
             if (!everConnected)
             {
