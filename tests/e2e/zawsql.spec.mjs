@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { test, expect, request as playwrightRequest } from '@playwright/test';
 import { PORT, TOKEN, DB, SSH } from './env.mjs';
 
@@ -334,6 +335,44 @@ test('replication status of the server', async () => {
     await expect(rp.locator('.rp-card', { hasText: 'As a primary' }).locator('.rp-table tbody tr').first()).toBeVisible();
     await expect(rp.locator('.rp-details')).toContainText('Binary log position');
   }
+  await page.locator('.host-view .subtab', { hasText: 'Databases' }).click();
+});
+
+test('server health report: findings, filters, fixes and the saved HTML', async () => {
+  await page.locator('.tn.session').first().click();
+  await page.locator('.menubar-item', { hasText: 'Tools' }).click();
+  await page.locator('.menu-item', { hasText: 'Server health report' }).click();
+  await expect(page.locator('.host-view > .viewbar .subtab.active')).toHaveText('Health');
+  const hl = page.locator('.hl');
+  await expect(hl.locator('.hl-verdict')).toBeVisible();
+  // The e2e schema's logs table has no primary key.
+  const pk = hl.locator('.hl-finding[data-id="primary-keys"]');
+  await expect(pk).toContainText(`${schema}.logs`);
+  await expect(pk.locator('.hl-sql')).toContainText('ADD COLUMN id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY FIRST');
+  await expect(hl.locator('.hl-overview')).toContainText('Largest tables');
+
+  await hl.locator('.hl-chip', { hasText: 'Passed' }).click();
+  await expect(hl.locator('.hl-passed li').first()).toBeVisible();
+  await expect(hl.locator('.hl-finding')).toHaveCount(0);
+  await hl.locator('.hl-chip', { hasText: 'Warnings' }).click();
+  await expect(hl.locator('.hl-finding.sev-warning').first()).toBeVisible();
+  await expect(hl.locator('.hl-finding:not(.sev-warning)')).toHaveCount(0);
+  await hl.locator('.hl-chip', { hasText: 'All' }).click();
+
+  // Saved as one self-contained page (the download path; the native save dialog is unavailable here).
+  await page.evaluate(() => { window.showSaveFilePicker = undefined; });
+  const [download] = await Promise.all([page.waitForEvent('download'), hl.getByRole('button', { name: 'Save as HTML…' }).click()]);
+  expect(download.suggestedFilename()).toMatch(/^health-.+-\d{4}-\d{2}-\d{2}\.html$/);
+  const html = readFileSync(await download.path(), 'utf8');
+  expect(html).toContain('<title>Health report');
+  expect(html).toContain(`${schema}.logs`);
+
+  // The fix opens in a query tab for review; nothing runs by itself.
+  await pk.getByRole('button', { name: 'Open in query tab' }).click();
+  await expect(page.locator('.tab-pane.active .sqled-ta')).toHaveValue(/-- Review before running\.\nALTER TABLE `[^`]+`\.`logs` ADD COLUMN id/);
+  expect(await scalar(`SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = '${schema}' AND TABLE_NAME = 'logs'`)).toBe('1');
+  await page.locator('#tabbar .tab.active .tab-x').click();
+  await tab(/^Host/).click();
   await page.locator('.host-view .subtab', { hasText: 'Databases' }).click();
 });
 

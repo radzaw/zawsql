@@ -375,6 +375,10 @@ public static class Api
             return null;
         }));
 
+        // ---- server health report (facts only; the checks run in the UI; read-only, not logged) ----
+        s.MapGet("/health", (string sid, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, _, _) =>
+            await HealthReport.CollectAsync(c, ct)));
+
         // ---- table maintenance ----
         s.MapPost("/maintenance", (string sid, MaintenanceRequest req, ConnectionManager cm, CancellationToken ct) => Run(async log =>
         {

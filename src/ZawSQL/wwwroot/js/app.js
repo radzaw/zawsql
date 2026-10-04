@@ -300,6 +300,7 @@ class App {
         '-',
         { label: 'User manager…', icon: 'user', disabled: !s.sid, onClick: () => userManager(this, s.sid) },
         { label: 'Table maintenance…', icon: 'maintenance', disabled: !s.db, onClick: () => maintenanceDialog(this, s.sid, s.db, s.obj?.type === 'table' ? [s.obj.name] : null) },
+        { label: 'Server health report', icon: 'check', disabled: !s.sid, onClick: () => this.showHealth(s.sid) },
         '-',
         { label: 'Export database as SQL…', icon: 'export', disabled: !s.db, onClick: () => exportDumpDialog(this, s.sid, s.db) },
         { label: 'Run SQL file…', icon: 'import', disabled: !s.sid || ro, onClick: () => runSqlFile(this) },
@@ -511,6 +512,16 @@ class App {
     t.setDisabled('data', !obj || !['table', 'view'].includes(obj.type));
     this.applySessionLook(info);
     for (const q of this.queryViews) if (this.tabs.active === q.id) q.onShow();
+  }
+
+  /** Host tab › Health for a session (selecting the session first). */
+  showHealth(sid) {
+    if (this.sel.sid !== sid || this.sel.db) {
+      const node = this.tree.sessionNode(sid);
+      if (node) this.tree.select(node);
+    }
+    this.views.host.switchKind('health');
+    this.tabs.activate('host');
   }
 
   async selectDatabase(sid, db, { quiet = false } = {}) {
@@ -867,6 +878,7 @@ class App {
         { label: 'New query tab', icon: 'newtab', onClick: () => this.openQueryTab() },
         { label: 'Run SQL file…', icon: 'import', disabled: this.isReadOnly(node.sid), onClick: () => runSqlFile(this) },
         { label: 'User manager…', icon: 'user', onClick: () => userManager(this, node.sid) },
+        { label: 'Server health report', icon: 'check', onClick: () => this.showHealth(node.sid) },
         '-',
         { label: 'Disconnect', icon: 'disconnect', onClick: () => this.disconnect(node.sid) },
       ];
