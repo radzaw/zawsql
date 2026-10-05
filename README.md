@@ -1,4 +1,4 @@
-# ZawSQL
+# <img src="assets/icon/png/zawsql-64.png" width="40" height="40" alt="" align="top"> ZawSQL
 
 A lightweight MySQL / MariaDB desktop client in the spirit of HeidiSQL, written in C#.
 
@@ -172,6 +172,18 @@ dotnet run
 Output goes to `dist/<runtime>/`, one self-contained file per platform (about 50 MB). No .NET installation is needed on the target machine.
 
 > **Windows note:** Smart App Control / application-control policies may block a self-built, unsigned `ZawSQL.exe`. The release builds are signed (see [Code signing](#code-signing-windows)). For your own builds, either sign the executable or run the framework-dependent build with `dotnet ZawSQL.dll` (`./publish.ps1 -FrameworkDependent`).
+
+### App icon
+
+The icon (a database carrying the Z of ZawCloud, on the ZawCloud gradient tile) lives in `assets/icon`: `zawsql.svg` for 48 px and up, `zawsql-small.svg` for 32 px and below. `build-icons.mjs` renders them into PNGs (`assets/icon/png`, 16–512 px, for Linux and macOS packaging) and `src/ZawSQL/zawsql.ico` (16–256 px), which is embedded into `ZawSQL.exe`. The SDK only embeds it when building on Windows, so CI builds the Windows package on a Windows runner. After changing an SVG:
+
+```sh
+cd tests/e2e && npm ci && npx playwright install chromium
+node ../../assets/icon/build-icons.mjs
+cp ../../assets/icon/zawsql-small.svg ../../src/ZawSQL/wwwroot/favicon.svg
+cp ../../assets/icon/zawsql.svg ../../src/ZawSQL/wwwroot/logo.svg
+cp ../../assets/icon/png/zawsql-256.png ../../src/ZawSQL/wwwroot/icon-256.png
+```
 
 ## Testing
 

@@ -8,6 +8,8 @@
     <RootNamespace>ZawSQL</RootNamespace>
     <Version>1.0.0</Version>
     <Product>ZawSQL</Product>
+    <!-- Windows executable icon (generated from assets/icon by build-icons.mjs). Embedded only when building on Windows. -->
+    <ApplicationIcon>zawsql.ico</ApplicationIcon>
     <InvariantGlobalization>true</InvariantGlobalization>
     <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>
     <!-- Desktop app, not an IIS site: skip web.config and the static web assets manifest. -->

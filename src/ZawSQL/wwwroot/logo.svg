@@ -1,5 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <!-- ZawSQL icon for 32 px and smaller (favicon, 16–32 px ICO entries): zawsql.svg without the glass card, larger shapes. -->
+  <!-- ZawSQL: a database carrying the Z of ZawCloud, on the ZawCloud tile (cyan → blue → violet, dark glass card).
+       For 32 px and smaller, use zawsql-small.svg (no card, larger shapes). -->
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#06b6d4"/>
@@ -21,7 +22,10 @@
     </linearGradient>
   </defs>
   <rect width="512" height="512" rx="128" fill="url(#bg)"/>
-  <path d="M80 128V384A176 52 0 0 0 432 384V128" fill="url(#body)"/>
-  <ellipse cx="256" cy="128" rx="176" ry="52" fill="url(#top)" stroke="#fff" stroke-width="10"/>
-  <path d="M156 210H356V264L234.3 352H356V406H156V352L277.7 264H156Z" fill="url(#z)"/>
+  <rect x="48" y="48" width="416" height="416" rx="96" fill="#09090b" fill-opacity=".25" stroke="#fff" stroke-opacity=".2" stroke-width="8"/>
+  <!-- database -->
+  <path d="M104 140V372A152 46 0 0 0 408 372V140" fill="url(#body)"/>
+  <ellipse cx="256" cy="140" rx="152" ry="46" fill="url(#top)" stroke="#fff" stroke-width="10"/>
+  <!-- Z -->
+  <path d="M170 214H342V256L230.9 344H342V386H170V344L281.1 256H170Z" fill="url(#z)"/>
 </svg>
