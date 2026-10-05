@@ -1,0 +1,7 @@
+CREATE TABLE `ts` (
+  `id` int NOT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+/*!50100 PARTITION BY RANGE (`id`)
+(PARTITION a VALUES LESS THAN (10) TABLESPACE = `innodb_file_per_table` ENGINE = InnoDB,
+ PARTITION b VALUES LESS THAN MAXVALUE TABLESPACE = `innodb_file_per_table` ENGINE = InnoDB) */

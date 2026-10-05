@@ -893,3 +893,14 @@ select.cell-inp { padding: 0 2px; }
 .part-problems { display: flex; flex-direction: column; gap: 3px; color: var(--err); font-size: 12px; }
 .part-problems > div { display: flex; gap: 6px; align-items: center; }
 .part-problems .ic { width: 13px; height: 13px; display: block; flex: none; }
+
+/* partition and subpartition options */
+.part-opts-btn { white-space: nowrap; }
+.part-opts-btn .ic { width: 13px; height: 13px; }
+.part-opts-btn.has-opts span { font-weight: 600; color: var(--focus); }
+.po { display: flex; flex-direction: column; gap: 8px; }
+.po-engine, .po-hint { font-size: 11.5px; }
+.po-subs-wrap { max-height: 260px; overflow: auto; border: 1px solid var(--border-light); }
+.po-subs { width: 100%; font-size: 12px; }
+.po-subs td, .po-subs th { padding: 2px 4px; height: auto; }
+.po-subs .cell-inp::placeholder { color: var(--muted); opacity: .8; }

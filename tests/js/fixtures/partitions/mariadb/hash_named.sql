@@ -1,0 +1,7 @@
+CREATE TABLE `hash_named` (
+  `id` int(11) NOT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
+ PARTITION BY HASH (`id`)
+(PARTITION `h0` COMMENT = 'zero' ENGINE = InnoDB,
+ PARTITION `h1` ENGINE = InnoDB)

@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { buildPartModel, partitionClause, partitionAlter, partChanged, partitionCount, partitionProblems } from '../../src/ZawSQL/wwwroot/js/views/partitions.js';
 import { _test as users } from '../../src/ZawSQL/wwwroot/js/views/users.js';
@@ -106,40 +107,43 @@ test('server-named subpartitions: SUBPARTITIONS n, appending, counts', () => {
   assert.doesNotMatch(partitionAlter(r, T)[0], /SUBPARTITION/); // subpartitioning removed, partitions kept
 });
 
+const subs = (...names) => names.map(name => ({ name, comment: '', opts: { dataDir: '', indexDir: '', maxRows: '', minRows: '', tablespace: '' } }));
+const subList = x => x.subs.map(s => s.name).join(', ');
+
 test('named subpartitions: names per partition, validation, appending with names', () => {
   const p = buildPartModel(namedSubMeta);
   assert.equal(p.locked, null);
   assert.equal(p.sub.named, true);
-  assert.deepEqual(p.parts.map(x => x.subs), ['s0, s1', 's2, s3']);
+  assert.deepEqual(p.parts.map(subList), ['s0, s1', 's2, s3']);
   assert.equal(partChanged(p), false);
   assert.equal(partitionClause(p), "PARTITION BY LIST (`y`)\nSUBPARTITION BY KEY (`id`) (\n\tPARTITION `p0` VALUES IN (1,2) COMMENT = 'pc' (SUBPARTITION `s0`, SUBPARTITION `s1`),\n\tPARTITION `p1` VALUES IN (3) (SUBPARTITION `s2`, SUBPARTITION `s3`)\n)");
 
-  p.parts.push({ name: 'p2', values: '4', comment: '', subs: 's4, s5', isNew: true });
+  p.parts.push({ name: 'p2', values: '4', comment: '', subs: subs('s4', 's5'), isNew: true });
   assert.deepEqual(partitionAlter(p, T), [`ALTER TABLE ${T} ADD PARTITION (\n\tPARTITION \`p2\` VALUES IN (4) (SUBPARTITION \`s4\`, SUBPARTITION \`s5\`)\n)`]);
 
   // What the server would refuse is caught before saving.
-  p.parts[2].subs = 's4';
+  p.parts[2].subs = subs('s4');
   assert.deepEqual(partitionProblems(p), ['Every partition needs the same number of subpartitions.']);
-  p.parts[2].subs = 's0, s5';
+  p.parts[2].subs = subs('s0', 's5');
   assert.deepEqual(partitionProblems(p), ['The name s0 is used twice; partition and subpartition names must all differ.']);
-  p.parts[2].subs = 'p1, s5';
+  p.parts[2].subs = subs('p1', 's5');
   assert.match(partitionProblems(p)[0], /The name p1 is used twice/);
-  p.parts[2].subs = '';
+  p.parts[2].subs = [];
   assert.deepEqual(partitionProblems(p), ['Name the subpartitions of every partition (p2 has none).']);
-  p.parts[2].subs = 's4, s5';
+  p.parts[2].subs = subs('s4', 's5');
   p.sub.expr = '';
   assert.deepEqual(partitionProblems(p), ['Subpartitioning by KEY needs one or more columns.']);
 });
 
-test('renaming subpartitions redefines; names the server would give are the same as no names', () => {
+test("renaming a subpartition reorganizes just that partition; the server's own names are the same as none", () => {
   const p = buildPartModel(namedSubMeta);
-  p.parts[1].subs = 's2, s9';
-  assert.match(partitionAlter(p, T)[0], /^ALTER TABLE `shop`.`sales`\nPARTITION BY LIST \(`y`\)\nSUBPARTITION BY KEY \(`id`\) \(\n.*\(SUBPARTITION `s2`, SUBPARTITION `s9`\)/s);
+  p.parts[1].subs[1].name = 's9';
+  assert.deepEqual(partitionAlter(p, T), [`ALTER TABLE ${T} REORGANIZE PARTITION \`p1\` INTO (\n\tPARTITION \`p1\` VALUES IN (3) (SUBPARTITION \`s2\`, SUBPARTITION \`s9\`)\n)`]);
 
   // Naming them p0sp0, p0sp1 … by hand changes nothing.
   const q = buildPartModel(autoSubMeta);
   q.sub.named = true;
-  q.parts.forEach(x => { x.subs = `${x.name}sp0, ${x.name}sp1`; });
+  q.parts.forEach(x => { x.subs = subs(`${x.name}sp0`, `${x.name}sp1`); });
   assert.equal(partChanged(q), false);
   assert.deepEqual(partitionAlter(q, T), []);
   assert.match(partitionClause(q), /\nSUBPARTITIONS 2 \(/);
@@ -155,8 +159,8 @@ test('subpartitioning a new or plain table; HASH/KEY partitions have none', () =
   assert.deepEqual(partitionProblems(h), []);
 });
 
-test('subpartitions the editor cannot model keep the table locked', () => {
-  // Subpartitions with comments of their own would be lost by a redefinition.
+test('without SHOW CREATE TABLE, tables the editor cannot model stay locked', () => {
+  // Subpartition comments can't be told apart from the partition's without the definitions.
   const withComments = structuredClone(namedSubMeta);
   withComments.partitions[0].subComments = ['sc0', 'pc'];
   const p = buildPartModel(withComments);
@@ -167,6 +171,97 @@ test('subpartitions the editor cannot model keep the table locked', () => {
   uneven.partitions[1].subNames = ['s2'];
   uneven.partitions[1].subComments = [''];
   assert.match(buildPartModel(uneven).locked, /different numbers/);
+});
+
+// ---------------------------------------------------------------- partition and subpartition options
+// The model reads options from SHOW CREATE TABLE as MySQL 8.4 and MariaDB 11.4 print it (fixtures/partitions).
+
+const fixture = (server, table) => readFileSync(new URL(`./fixtures/partitions/${server}/${table}.sql`, import.meta.url), 'utf8');
+const fullOptsMeta = {
+  method: 'RANGE', expression: '`y`', subMethod: 'HASH', subExpression: '`id`',
+  partitions: [
+    { name: 'p0', description: '2000', comment: '', subNames: ['s0', 's1'], subComments: ['first half', "it's second"] },
+    { name: 'p1', description: 'MAXVALUE', comment: '', subNames: ['s2', 's3'], subComments: ['', ''] },
+  ],
+};
+const rangeAB = { method: 'RANGE', expression: '`id`', partitions: [{ name: 'a', description: '10', comment: 'x' }, { name: 'b', description: 'MAXVALUE', comment: '' }] };
+
+for (const server of ['mysql', 'mariadb']) {
+  test(`${server}: subpartition options are read, kept unchanged and written back`, () => {
+    const p = buildPartModel(fullOptsMeta, { create: fixture(server, 'full_opts'), engine: 'InnoDB' });
+    assert.equal(p.locked, null); // subpartition comments are modelled now
+    assert.equal(p.sub.named, true);
+    const [p0, p1] = p.parts;
+    // Shared by both subpartitions of p0: MIN_ROWS 10 becomes the partition's; the rest stays on each.
+    assert.deepEqual([p0.comment, p0.opts.minRows, p0.opts.maxRows], ['', '10', '']);
+    assert.deepEqual(p0.subs.map(s => [s.name, s.comment, s.opts.maxRows, s.opts.dataDir]), [['s0', 'first half', '500', '/tmp/pdata'], ['s1', "it's second", '1000', '']]);
+    assert.equal(p1.opts.dataDir, '/tmp/pdata'); // MySQL's trailing slash is dropped
+    assert.equal(p1.subs[1].opts.minRows, '5');
+    assert.equal(partChanged(p), false);
+    assert.equal(partitionClause(p).split('\n').slice(2).join('\n'),
+      "\tPARTITION `p0` VALUES LESS THAN (2000) MIN_ROWS = 10 (SUBPARTITION `s0` COMMENT = 'first half' DATA DIRECTORY = '/tmp/pdata' MAX_ROWS = 500, SUBPARTITION `s1` COMMENT = 'it\\'s second' MAX_ROWS = 1000),\n" +
+      "\tPARTITION `p1` VALUES LESS THAN MAXVALUE DATA DIRECTORY = '/tmp/pdata' (SUBPARTITION `s2`, SUBPARTITION `s3` MIN_ROWS = 5)\n)");
+  });
+
+  test(`${server}: plain partition options and HASH partitions with names of their own`, () => {
+    const p = buildPartModel(rangeAB, { create: fixture(server, 'plain_opts'), engine: 'InnoDB' });
+    assert.deepEqual([p.parts[0].comment, p.parts[0].opts.maxRows, p.parts[1].opts.dataDir], ['x', '7', '/tmp/pdata']);
+    assert.equal(partChanged(p), false);
+    // Changing an option rebuilds only that partition.
+    p.parts[0].opts.maxRows = '70';
+    p.parts[1].opts.dataDir = '';
+    assert.deepEqual(partitionAlter(p, T), [
+      `ALTER TABLE ${T} REORGANIZE PARTITION \`a\` INTO (\n\tPARTITION \`a\` VALUES LESS THAN (10) COMMENT = 'x' MAX_ROWS = 70\n)`,
+      `ALTER TABLE ${T} REORGANIZE PARTITION \`b\` INTO (\n\tPARTITION \`b\` VALUES LESS THAN MAXVALUE\n)`,
+    ]);
+    // An existing partition's values changed: the partitioning is redefined.
+    p.parts[1].values = '15';
+    assert.equal(partitionAlter(p, T).length, 1);
+    assert.match(partitionAlter(p, T)[0], /^ALTER TABLE `shop`.`sales`\nPARTITION BY RANGE/);
+
+    const hashMeta = { method: 'HASH', expression: '`id`', partitions: [{ name: 'h0' }, { name: 'h1' }] };
+    assert.match(buildPartModel(hashMeta, { create: fixture(server, 'hash_named') }).locked, /names or options of their own/);
+    const plainHash = { method: 'HASH', expression: '`id`', partitions: [{ name: 'p0' }, { name: 'p1' }, { name: 'p2' }] };
+    assert.equal(buildPartModel(plainHash, { create: fixture(server, 'hash_auto') }).locked, null);
+  });
+
+  test(`${server}: changed options plus a new partition: REORGANIZE, then ADD`, () => {
+    const p = buildPartModel({ ...rangeAB, partitions: [rangeAB.partitions[0], { name: 'b', description: '20' }] },
+      { create: fixture(server, 'plain_opts').replace('MAXVALUE', '(20)'), engine: 'InnoDB' });
+    p.parts[0].comment = 'y';
+    p.parts.push({ name: 'c', values: '30', comment: '', opts: { dataDir: '', indexDir: '', maxRows: '3', minRows: '', tablespace: '' }, subs: [], isNew: true });
+    assert.deepEqual(partitionAlter(p, T), [
+      `ALTER TABLE ${T} REORGANIZE PARTITION \`a\` INTO (\n\tPARTITION \`a\` VALUES LESS THAN (10) COMMENT = 'y' MAX_ROWS = 7\n)`,
+      `ALTER TABLE ${T} ADD PARTITION (\n\tPARTITION \`c\` VALUES LESS THAN (30) MAX_ROWS = 3\n)`,
+    ]);
+  });
+
+  test(`${server}: server-named subpartitions keep options on the partition`, () => {
+    const meta = { method: 'LIST', expression: '`y`', subMethod: 'KEY', subExpression: '`id`',
+      partitions: [{ name: 'p0', description: '1,2', subNames: ['p0sp0', 'p0sp1'], subComments: ['', ''] }, { name: 'p1', description: '3', subNames: ['p1sp0', 'p1sp1'], subComments: ['', ''] }] };
+    const p = buildPartModel(meta, { create: fixture(server, 'autosub'), engine: 'InnoDB' });
+    assert.equal(p.sub.named, false);
+    p.parts[0].comment = 'auto subs';
+    assert.deepEqual(partitionAlter(p, T), [`ALTER TABLE ${T} REORGANIZE PARTITION \`p0\` INTO (\n\tPARTITION \`p0\` VALUES IN (1,2) COMMENT = 'auto subs'\n)`]);
+  });
+}
+
+test('option problems: whole numbers for rows, INDEX DIRECTORY only for MyISAM / Aria', () => {
+  const p = buildPartModel(rangeAB, { create: fixture('mysql', 'plain_opts'), engine: 'InnoDB' });
+  p.parts[0].opts.maxRows = 'lots';
+  p.parts[1].opts.indexDir = '/idx';
+  assert.deepEqual(partitionProblems(p), [
+    'Partition a: Max rows must be a whole number.',
+    'Partition b: INDEX DIRECTORY only works for MyISAM and Aria tables; InnoDB refuses it.',
+  ]);
+  p.parts[0].opts.maxRows = '';
+  assert.deepEqual(partitionProblems(p, 'MyISAM'), []);
+  const mys = buildPartModel(rangeAB, { create: fixture('mariadb', 'mys'), engine: 'MyISAM' });
+  assert.equal(partitionClause(mys).split('\n')[1], "\tPARTITION `a` VALUES LESS THAN (10) DATA DIRECTORY = '/tmp/pdata' INDEX DIRECTORY = '/tmp/pdata',");
+  const ts = buildPartModel(rangeAB, { create: fixture('mysql', 'ts'), engine: 'InnoDB' });
+  assert.match(partitionClause(ts), /PARTITION `a` VALUES LESS THAN \(10\) TABLESPACE = `innodb_file_per_table`/);
+  // A clause that can't be read keeps the editor locked rather than losing options.
+  assert.match(buildPartModel(rangeAB, { create: 'CREATE TABLE t (id INT) PARTITION BY RANGE (id) (PARTITION a VALUES LESS THAN (10) WEIRD, PARTITION b)' }).locked, /could not be read/);
 });
 
 // ---------------------------------------------------------------- user manager

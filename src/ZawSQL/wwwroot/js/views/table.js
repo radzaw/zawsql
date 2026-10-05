@@ -199,7 +199,7 @@ export class TableView {
     });
     m.origFks = m.fks.map(f => f.orig);
     m.create = info.create || '';
-    m.part = buildPartModel(info.partitions);
+    m.part = buildPartModel(info.partitions, { create: info.create, engine: m.opts.engine });
     return m;
   }
 
@@ -582,7 +582,7 @@ export class TableView {
     const m = this.m;
     if (m.code) return this.saveCode();
     // The server would refuse these (or worse, create something else); say what to fix instead.
-    const problems = partitionProblems(m.part);
+    const problems = partitionProblems(m.part, m.opts.engine);
     if (problems.length) return this.app.showError(new Error(`Partitions: ${problems.join(' ')}`));
     const stmts = m.creating ? [this.genCreate()] : this.genAlter();
     if (!stmts.length) return;

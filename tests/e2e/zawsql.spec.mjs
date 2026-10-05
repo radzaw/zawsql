@@ -390,6 +390,31 @@ test('partition editor adds, names and checks subpartitions', async () => {
   await save();
   expect(await subNames()).toBe('old_a,old_b,pmaxsp0,pmaxsp1');
 
+  // Options: a default for p0's subpartitions, and old_a's own comment and MAX_ROWS.
+  await openPartitions();
+  await view.locator('.part-editor .edit-table tbody tr').first().locator('.part-opts-btn').click();
+  const dlg = page.locator('.modal.po-dialog');
+  await dlg.locator('label.frow', { hasText: 'Min rows:' }).locator('input').fill('5');
+  const oldA = dlg.locator('.po-subs tbody tr').first().locator('td');
+  await oldA.nth(1).locator('input').fill('hot data');
+  await oldA.nth(4).locator('input').fill('100');
+  await dlg.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(view.locator('.part-editor .edit-table tbody tr').first().locator('.part-opts-btn')).toHaveClass(/has-opts/);
+  await view.locator('.tv-top .subtab', { hasText: 'ALTER code' }).click();
+  await expect(view.locator('.tv-pane')).toContainText('REORGANIZE PARTITION `p0` INTO'); // only p0 is rebuilt
+  await save();
+  const create = (await exec('SHOW CREATE TABLE sp_sales')).resultSets[0].rows[0][1];
+  expect(create).toMatch(/SUBPARTITION `?old_a`? MAX_ROWS = 100 MIN_ROWS = 5 COMMENT = 'hot data'/);
+  expect(create).toMatch(/SUBPARTITION `?old_b`? MIN_ROWS = 5/);
+  expect(await scalar('SELECT COUNT(*) FROM sp_sales')).toBe('3');
+  // Read back, the shared MIN_ROWS is the partition's again and old_a keeps its own options.
+  await openPartitions();
+  await view.locator('.part-editor .edit-table tbody tr').first().locator('.part-opts-btn').click();
+  await expect(dlg.locator('label.frow', { hasText: 'Min rows:' }).locator('input')).toHaveValue('5');
+  await expect(oldA.nth(1).locator('input')).toHaveValue('hot data');
+  await dlg.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(tab(/^Table/)).not.toHaveClass(/modified/);
+
   // What the server would refuse is caught first: a partition with fewer subpartitions.
   await openPartitions();
   await p0subs.fill('old_a');
