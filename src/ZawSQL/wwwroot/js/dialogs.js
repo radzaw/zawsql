@@ -152,7 +152,25 @@ function outside(e) {
 }
 
 function menuKey(e) {
-  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeMenus(); }
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeMenus(); return; }
+  // Up / Down move through the items of the open menu, Enter picks the highlighted one.
+  if (!openMenu) return;
+  const items = [...openMenu.querySelectorAll(':scope > .menu-item:not(.disabled)')];
+  const cur = openMenu.querySelector(':scope > .menu-item.kbd');
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!items.length) return;
+    const i = items.indexOf(cur);
+    const next = items[i < 0 ? (e.key === 'ArrowDown' ? 0 : items.length - 1) : (i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length];
+    cur?.classList.remove('kbd');
+    next.classList.add('kbd');
+    next.scrollIntoView({ block: 'nearest' });
+  } else if (e.key === 'Enter' && cur) {
+    e.preventDefault();
+    e.stopPropagation();
+    cur.click();
+  }
 }
 
 /** Opens a context menu. Items: {label, icon, shortcut, disabled, checked, onClick, submenu} or '-'. */
@@ -183,7 +201,7 @@ function buildMenu(items) {
       if (m.lastChild && !m.lastChild.classList.contains('menu-sep')) m.append(h('div', { class: 'menu-sep' }));
       continue;
     }
-    const row = h('div', { class: 'menu-item' + (it.disabled ? ' disabled' : '') + (it.submenu ? ' has-sub' : '') },
+    const row = h('div', { class: 'menu-item' + (it.disabled ? ' disabled' : '') + (it.submenu ? ' has-sub' : ''), title: it.title || null },
       h('span', { class: 'menu-ic', html: it.icon ? icon(it.icon) : it.checked ? '✓' : '' }),
       h('span', { class: 'menu-label' }, it.label),
       h('span', { class: 'menu-key' }, it.shortcut || ''),

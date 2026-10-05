@@ -6,6 +6,7 @@ import { Grid } from '../grid.js';
 import { contextMenu } from '../dialogs.js';
 import { exportGridDialog, rowsToSql } from './tools.js';
 import { RowEditor } from './editing.js';
+import { whereKey, rememberWhere, forgetWhere, whereLabel } from '../wherehistory.js';
 
 export class DataView {
   constructor(app) {
@@ -41,9 +42,13 @@ export class DataView {
     this.whereInput = h('textarea', { class: 'inp mono', rows: 2, spellcheck: false, placeholder: "WHERE clause, e.g.  name LIKE 'abc%' AND id > 10" });
     this.whereInput.addEventListener('keydown', e => {
       if (e.key === 'Enter' && (e.ctrlKey || !e.shiftKey)) { e.preventDefault(); this.applyFilter(); }
+      else if (e.key === 'ArrowDown' && e.altKey) { e.preventDefault(); this.showWhereHistory(); }
     });
+    // Recently used filters of this table, to pick again from a drop-down.
+    this.histBtn = h('button', { class: 'btn filter-hist', title: 'Recent filters on this table (Alt+↓ in the filter box)', onclick: () => this.showWhereHistory() },
+      h('span', { html: icon('history') }), h('span', null, 'Recent'), h('span', { class: 'filter-hist-arrow' }, '▾'));
     this.filterBox = h('div', { class: 'filter-box', style: { display: 'none' } },
-      h('span', { class: 'filter-label', html: icon('filter') + ' WHERE' }), this.whereInput,
+      h('div', { class: 'filter-side' }, h('span', { class: 'filter-label', html: icon('filter') + ' WHERE' }), this.histBtn), this.whereInput,
       h('div', { class: 'filter-btns' },
         h('button', { class: 'btn primary', onclick: () => this.applyFilter() }, 'Apply filter'),
         h('button', { class: 'btn', onclick: () => { this.whereInput.value = ''; this.applyFilter(); } }, 'Clear')));
@@ -124,7 +129,11 @@ export class DataView {
       this.grid.sort = sc >= 0 ? { c: sc, dir: this.sort.dir } : null;
       this.grid.setData(this.cols, this.rows, { keepWidths: sameCols, keepPos: append });
       this.updateInfo();
+      // The filter worked: offer it again next time.
+      if (this.recordWhere && this.recordWhere === this.where) this.rememberFilter(this.where);
+      this.recordWhere = null;
     } catch (e) {
+      this.recordWhere = null;
       if (key !== this.key) return;
       this.info.textContent = 'Error';
       this.app.showError(e);
@@ -158,22 +167,48 @@ export class DataView {
     if (vis) this.whereInput.focus();
   }
 
-  applyFilter() {
+  /** record: remember the filter in the table's history once it has run without an error. */
+  applyFilter({ record = true } = {}) {
     this.where = this.whereInput.value.trim();
+    this.recordWhere = record && this.where ? this.where : null;
     this.load();
   }
 
-  setFilter(where) {
+  setFilter(where, opts) {
     this.whereInput.value = where;
     this.toggleFilter(true);
-    this.applyFilter();
+    this.applyFilter(opts);
   }
 
   quickSearch() {
     const q = this.search.value;
     if (!q) return this.setFilter('');
     const like = sqlStr('%' + q.replace(/[\\%_]/g, m => '\\' + m) + '%');
-    this.setFilter(this.cols.map(c => `${qi(c.name)} LIKE ${like}`).join(' OR '));
+    // A generated search over every column would only clutter the history.
+    this.setFilter(this.cols.map(c => `${qi(c.name)} LIKE ${like}`).join(' OR '), { record: false });
+  }
+
+  // ---------- filter history ----------
+
+  get whereHistoryKey() { return this.target ? whereKey(this.target.db, this.target.table) : null; }
+
+  rememberFilter(where) {
+    this.app.state.whereHistory = rememberWhere(this.app.state.whereHistory, this.whereHistoryKey, where);
+    this.app.saveStateSoon();
+  }
+
+  showWhereHistory() {
+    const key = this.whereHistoryKey;
+    if (!key) return;
+    const list = this.app.state.whereHistory?.[key] ?? [];
+    const forget = where => { this.app.state.whereHistory = forgetWhere(this.app.state.whereHistory, key, where); this.app.saveStateSoon(); };
+    const r = this.histBtn.getBoundingClientRect();
+    contextMenu(r.left, r.bottom + 2, list.length ? [
+      ...list.map(w => ({ label: whereLabel(w), title: w, checked: w === this.where, onClick: () => this.setFilter(w) })),
+      '-',
+      { label: 'Remove the current filter from the list', disabled: !this.where || !list.includes(this.where), onClick: () => forget(this.where) },
+      { label: `Clear the list for ${this.target.table}`, icon: 'trash', onClick: () => forget() },
+    ] : [{ label: `No filters used on ${this.target.table} yet`, disabled: true }]);
   }
 
   // ---------- context menu ----------

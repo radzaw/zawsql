@@ -81,6 +81,52 @@ test('browses and edits table data in the grid', async () => {
   await expect.poll(() => scalar('SELECT name FROM customers WHERE id = 2')).toBe('Bobby');
 });
 
+test('remembers WHERE filters per table and offers them in a drop-down', async () => {
+  const view = page.locator('.data-view');
+  const rows = view.locator('.gr');
+  const where = view.locator('.filter-box textarea');
+  await view.getByRole('button', { name: 'Filter', exact: true }).click();
+  await where.fill("status = 'blocked'");
+  await where.press('Enter');
+  await expect(rows).toHaveCount(1);
+  await where.fill('id > 1');
+  await where.press('Enter');
+  await expect(rows).toHaveCount(2);
+  // A filter that fails isn't remembered.
+  await where.fill('no_such_column = 1');
+  await where.press('Enter');
+  await expect(page.locator('.modal')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await view.getByRole('button', { name: 'Clear', exact: true }).click();
+  await expect(rows).toHaveCount(3);
+
+  await view.locator('.filter-hist').click();
+  const items = page.locator('.ctx-root .menu-item');
+  await expect(items.nth(0)).toHaveText(/id > 1/);
+  await expect(items.nth(1)).toHaveText(/status = 'blocked'/);
+  await expect(page.locator('.ctx-root')).not.toContainText('no_such_column');
+  await items.nth(1).click();
+  await expect(where).toHaveValue("status = 'blocked'");
+  await expect(rows).toHaveCount(1);
+
+  // From the keyboard: Alt+Down opens the list, Down and Enter pick an entry.
+  await where.press('Alt+ArrowDown');
+  await expect(page.locator('.ctx-root')).toBeVisible();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(where).toHaveValue("status = 'blocked'"); // picked again: now the most recent entry
+  await where.press('Alt+ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(where).toHaveValue('id > 1');
+  await expect(rows).toHaveCount(2);
+
+  await view.getByRole('button', { name: 'Clear', exact: true }).click();
+  await expect(rows).toHaveCount(3);
+  await view.getByRole('button', { name: 'Filter', exact: true }).click();
+});
+
 test('runs queries with F9 and edits the result in place', async () => {
   await tab('Query').click();
   const ta = page.locator('.query-view .sqled-ta').first();
