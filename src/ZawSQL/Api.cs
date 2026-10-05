@@ -94,6 +94,11 @@ public static class Api
             return RunSync(() => null);
         });
         api.MapGet("/state", (SessionStore st) => RunSync(() => st.LoadState()));
+
+        // ---- run the same statements on several saved sessions ----
+        api.MapPost("/multi/run", (MultiRunRequest req, SessionStore st, ConnectionManager cm, CancellationToken ct) => Run(async log =>
+            await MultiRun.RunAsync(req, st, cm, log, ct)));
+        api.MapPost("/multi/cancel", (MultiCancelRequest req) => RunSync(() => new { cancelled = MultiRun.Cancel(req.RunId) }));
         api.MapPut("/state", async (HttpRequest req, SessionStore st) =>
         {
             using var doc = await JsonDocument.ParseAsync(req.Body);

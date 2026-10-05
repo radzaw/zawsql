@@ -293,6 +293,7 @@ class App {
         { label: 'Execute SQL', icon: 'play', shortcut: 'F9', disabled: !s.sid, onClick: () => this.queryForRun()?.run('all') },
         { label: 'Execute selection', icon: 'playsel', shortcut: 'Ctrl+F9', disabled: !s.sid, onClick: () => this.queryForRun()?.run('selection') },
         { label: 'Execute current query', icon: 'playline', shortcut: 'Ctrl+Shift+F9', disabled: !s.sid, onClick: () => this.queryForRun()?.run('current') },
+        { label: 'Run on several servers…', icon: 'server', shortcut: 'Ctrl+Alt+F9', onClick: () => this.queryForRun()?.runMulti() },
         { label: 'Stop', icon: 'stop', disabled: !s.sid, onClick: () => this.activeQuery()?.stop() },
         '-',
         { label: 'Query history…', icon: 'history', onClick: () => this.queryForRun()?.showHistory() },

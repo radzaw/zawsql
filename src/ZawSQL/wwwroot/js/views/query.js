@@ -13,6 +13,8 @@ import { exportGridDialog } from './tools.js';
 import { attachLibraryPanel, editQueryDialog } from './library.js';
 import { findSnippet } from '../library.js';
 import { ExplainView } from './explain.js';
+import { pickServers, confirmMultiRun } from './multirun.js';
+import { combineResults, summarySet, serverStatus, runSummary } from '../multirunlogic.js';
 
 const DDL_RE = /^\s*(?:\/\*.*?\*\/\s*)*(create|drop|alter|rename|truncate)\b/is;
 
@@ -37,6 +39,7 @@ export class QueryView {
     this.runBtn = btn('play', 'Run', 'Execute SQL (F9)', () => this.run('all'));
     this.runSelBtn = btn('playsel', '', 'Execute selection (Ctrl+F9)', () => this.run('selection'));
     this.runCurBtn = btn('playline', '', 'Execute current query (Ctrl+Shift+F9)', () => this.run('current'));
+    this.multiBtn = btn('server', '', 'Run on several servers (Ctrl+Alt+F9)', () => this.runMulti());
     this.stopBtn = btn('stop', '', 'Stop running query', () => this.stop());
     this.stopBtn.disabled = true;
     this.dbLabel = h('span', { class: 'muted' });
@@ -48,7 +51,7 @@ export class QueryView {
     this.rollbackBtn = btn('cancel', 'Rollback', 'Undo the changes of the open transaction', () => this.rollback());
     this.txInfo = h('span', { class: 'tx-info' });
     this.txTimer = setInterval(() => { if (this.tx?.open) this.renderTx(); }, 30_000);
-    const toolbar = h('div', { class: 'viewbar' }, this.runBtn, this.runSelBtn, this.runCurBtn, this.stopBtn, h('span', { class: 'sep' }),
+    const toolbar = h('div', { class: 'viewbar' }, this.runBtn, this.runSelBtn, this.runCurBtn, this.multiBtn, this.stopBtn, h('span', { class: 'sep' }),
       btn('open', '', 'Load SQL file', () => this.loadFile()),
       btn('save', '', 'Save SQL file', () => this.saveFile()),
       btn('history', '', 'Query history', () => this.showHistory()),
@@ -105,7 +108,8 @@ export class QueryView {
     this.el.addEventListener('keydown', e => {
       if (e.key === 'F9') {
         e.preventDefault();
-        this.run(e.ctrlKey && e.shiftKey ? 'current' : e.ctrlKey ? 'selection' : 'all');
+        if (e.ctrlKey && e.altKey) this.runMulti();
+        else this.run(e.ctrlKey && e.shiftKey ? 'current' : e.ctrlKey ? 'selection' : 'all');
       } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
         e.preventDefault();
         this.explain();
@@ -406,13 +410,75 @@ export class QueryView {
   }
 
   setRunning(on) {
-    for (const b of [this.runBtn, this.runSelBtn, this.runCurBtn]) b.disabled = on;
+    for (const b of [this.runBtn, this.runSelBtn, this.runCurBtn, this.multiBtn]) b.disabled = on;
     this.stopBtn.disabled = !on;
     this.app.tabs.setBusy(this.id, on);
     this.renderTx();
   }
 
+  /** Runs the editor's statements (or the selection) on several saved sessions and combines the results. */
+  async runMulti() {
+    if (this.running || this.asking) return;
+    const sel = this.editor.selection();
+    const text = sel.start === sel.end ? this.editor.value : sel.text;
+    const written = splitSql(text);
+    if (!written.length) return;
+    let stmts;
+    this.asking = true;
+    try {
+      stmts = await fillParams(this.app, written, { action: 'Run on several servers' });
+      if (!stmts) return;
+      const pick = await pickServers(this.app, { database: this.app.sel.db || '' });
+      if (!pick) return;
+      const sqls = stmts.map(s => s.sql);
+      if (!(await confirmMultiRun(pick.items, sqls))) {
+        this.msg.className = 'q-msg';
+        this.msg.textContent = 'Execution cancelled – nothing was run.';
+        return;
+      }
+      stmts = { sqls, pick };
+    } finally { this.asking = false; }
+    const { sqls, pick } = stmts;
+
+    this.running = true;
+    this.multiRunId = Math.random().toString(36).slice(2, 12);
+    this.setRunning(true);
+    const t0 = Date.now();
+    const n = pick.sessions.length;
+    this.msg.className = 'q-msg';
+    this.msg.textContent = `Executing on ${n} server${n === 1 ? '' : 's'}…`;
+    this.timer = setInterval(() => { this.msg.textContent = `Executing on ${n} server${n === 1 ? '' : 's'}… ${fmtElapsed(Date.now() - t0)}`; }, 500);
+    this.app.setStatus('Executing on several servers…');
+    try {
+      const r = await post('/multi/run', { runId: this.multiRunId, sessions: pick.sessions, statements: sqls, database: pick.database || null, maxRows: this.app.prefs.maxResultRows, stopOnError: pick.stopOnError });
+      this.app.addHistory(written.map(s => s.sql).join(';\n'), pick.database || null);
+      this.resultSid = null;
+      this.sets = [summarySet(r.servers, sqls.length), ...combineResults(r.servers)];
+      this.active = 0;
+      this.sort = null;
+      this.renderResTabs();
+      this.showSet(this.sets.length > 1 && r.servers.every(s => serverStatus(s) === 'OK') ? 1 : 0);
+      const bad = r.servers.filter(s => serverStatus(s) !== 'OK');
+      this.msg.className = 'q-msg' + (bad.length ? ' err' : '');
+      this.msg.textContent = `${runSummary(r.servers)}${r.cancelled ? ' (stopped)' : ''}   Duration: ${fmtSecs(Date.now() - t0)}`;
+      this.app.setStatus('Finished on several servers.');
+    } catch (e) {
+      this.msg.className = 'q-msg err';
+      this.msg.textContent = e.message;
+      this.app.showError(e);
+    } finally {
+      clearInterval(this.timer);
+      this.multiRunId = null;
+      this.running = false;
+      this.setRunning(false);
+    }
+  }
+
   async stop() {
+    if (this.multiRunId) {
+      try { await post('/multi/cancel', { runId: this.multiRunId }); } catch (e) { this.app.showError(e); }
+      return;
+    }
     const { sid } = this.app.sel;
     if (!sid) return;
     const tab = this.txTabFor(sid);
@@ -443,8 +509,10 @@ export class QueryView {
   /** Result set tabs, plus a "Plan" tab once a statement has been explained. */
   renderResTabs() {
     const tabs = this.sets.map((s, i) => {
-      const b = h('button', { class: 'res-tab', title: s.sql, 'data-i': i },
-        `Result #${i + 1} (${fmtNum(s.rows.length)}${s.truncated ? '+' : ''}r × ${s.columns.length}c)`);
+      const label = s.summary ? `Servers (${s.rows.length})`
+        : s.multi ? `#${s.statement + 1} on ${s.servers.length} server${s.servers.length === 1 ? '' : 's'} (${fmtNum(s.rows.length)}${s.truncated ? '+' : ''}r × ${s.columns.length - 1}c)`
+        : `Result #${i + 1} (${fmtNum(s.rows.length)}${s.truncated ? '+' : ''}r × ${s.columns.length}c)`;
+      const b = h('button', { class: 'res-tab' + (s.summary ? ' res-summary' : ''), title: s.multi && !s.summary ? `${s.sql}\n\nServers: ${s.servers.join(', ')}` : s.sql, 'data-i': i }, label);
       b.addEventListener('click', () => this.showSet(i));
       return b;
     });
@@ -534,6 +602,7 @@ export class QueryView {
       this.editInfo.textContent = 'Read-only';
       this.editInfo.title = why;
     };
+    if (set.multi) return readOnly('Results from several servers can\'t be edited.');
     if (sid && this.app.isReadOnly(sid)) return readOnly('The session is in read-only mode.');
     if (!sid || !this.app.conns.has(sid) || !based.length) return readOnly('The result has no columns from a table.');
     if (new Set(based.map(c => c.schema + '.' + c.table)).size > 1) return readOnly('The result combines columns from several tables.');

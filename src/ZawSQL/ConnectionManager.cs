@@ -125,6 +125,9 @@ public sealed class ConnectionManager : IAsyncDisposable
         return c;
     }
 
+    /// <summary>A connected session of the given saved profile, if any.</summary>
+    public DbSession? FindByProfile(string profileId) => sessions.Values.FirstOrDefault(s => s.Profile.Id == profileId);
+
     public DbSession Get(string id) =>
         sessions.TryGetValue(id, out var s) ? s : throw new ApiException("This session is not connected. Open it again from the session manager.");
 

@@ -21,6 +21,15 @@ public sealed class SqlLog
             Times.Add(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         }
     }
+    /// <summary>Adds a line logged elsewhere, keeping the time it was logged there.</summary>
+    public void Add(string sql, long time)
+    {
+        lock (Items)
+        {
+            Items.Add(sql);
+            Times.Add(time);
+        }
+    }
 }
 
 /// <summary>A result column. Schema/Table/BaseName identify the underlying table column, if any (null for expressions).</summary>

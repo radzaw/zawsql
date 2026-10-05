@@ -233,6 +233,42 @@ test('manual commit keeps changes in a transaction until commit or rollback', as
   expect(await status()).toBe('active');
 });
 
+test('runs statements on several servers and combines the results', async () => {
+  const ta = page.locator('.query-view .sqled-ta').first();
+  await ta.fill("SELECT COUNT(*) AS n FROM customers;\nINSERT INTO logs VALUES ('multi')");
+  await ta.press('Control+Alt+F9');
+  const dlg = page.locator('.modal.mr-modal');
+  await expect(dlg.locator('.modal-title > span')).toHaveText('Run on several servers');
+  await dlg.getByRole('button', { name: 'None', exact: true }).click();
+  await dlg.locator('.mr-filter').fill('E2E');
+  for (const name of ['E2E admin', sessionName]) await dlg.locator('.mr-item', { hasText: name }).locator('input').check();
+  await expect(dlg.locator('.mr-item', { hasText: sessionName }).locator('.mr-tag')).toHaveText('connected');
+  await expect(dlg.locator('.mr-count')).toHaveText('2 selected');
+  await dlg.locator('.mr-dialog .row input').fill(schema);
+  await btn('Run').click();
+
+  // INSERT changes data, so the servers are listed before anything runs.
+  const confirm = page.locator('.modal', { hasText: 'Confirm changes on several servers' });
+  await expect(confirm.locator('.mr-targets')).toContainText(sessionName);
+  await confirm.getByRole('button', { name: 'Execute', exact: true }).click();
+
+  await expect(page.locator('.res-tab', { hasText: '#1 on 2 servers (2r × 1c)' })).toHaveClass(/active/);
+  await expect(page.locator('.q-msg')).toContainText('2 servers OK');
+  const rows = page.locator('.q-results .gr');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0).locator('.gc').nth(1)).toHaveText('E2E admin'); // name order, as in the picker
+  await expect(rows.nth(1).locator('.gc').nth(1)).toHaveText(sessionName);
+  await expect(rows.nth(1).locator('.gc').nth(2)).toHaveText('3');
+  await expect(page.locator('.res-edit-info')).toHaveText('Read-only');
+  expect(await scalar("SELECT COUNT(*) FROM logs WHERE msg = 'multi'")).toBe('2');
+
+  await page.locator('.res-tab', { hasText: 'Servers (2)' }).click();
+  await expect(page.locator('.q-results .gr')).toHaveCount(2);
+  await expect(page.locator('.q-results .gr', { hasText: sessionName })).toContainText('2 of 2');
+  await expect(page.locator('#log')).toContainText(`/* On "${sessionName}": 2 of 2 statements`);
+  await exec("DELETE FROM logs WHERE msg = 'multi'");
+});
+
 test('saves queries to the library and expands snippets', async () => {
   const name = 'Active ' + schema;
   const ta = page.locator('.query-view .sqled-ta').first();

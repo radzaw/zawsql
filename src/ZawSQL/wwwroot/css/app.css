@@ -908,3 +908,17 @@ select.cell-inp { padding: 0 2px; }
 .po-subs { width: 100%; font-size: 12px; }
 .po-subs td, .po-subs th { padding: 2px 4px; height: auto; }
 .po-subs .cell-inp::placeholder { color: var(--muted); opacity: .8; }
+
+/* run on several servers */
+.mr-dialog .mr-top { display: flex; gap: 6px; align-items: center; }
+.mr-dialog .mr-filter { flex: 1; }
+.mr-dialog .mr-count { white-space: nowrap; min-width: 70px; text-align: right; }
+.mr-list { border: 1px solid var(--border-light); max-height: 300px; overflow: auto; padding: 2px 0; }
+.mr-item { display: flex; align-items: center; gap: 6px; padding: 3px 8px; cursor: pointer; }
+.mr-item:hover { background: var(--hover); }
+.mr-item.disabled { opacity: 0.55; cursor: default; }
+.mr-item .mr-name { white-space: nowrap; }
+.mr-item .mr-host { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.mr-tag { flex: none; padding: 0 5px; border-radius: 3px; font-size: 10px; line-height: 15px; background: var(--sel); color: var(--text); }
+.mr-targets { margin-top: 6px; }
+.res-tab.res-summary { font-weight: 600; }
