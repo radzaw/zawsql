@@ -207,6 +207,62 @@ test('the SQL log marks statements slower than the chosen threshold with their d
   await expect(log.locator('.log-slow')).toHaveCount(0);
 });
 
+test('SQL log lines open in a query tab or EXPLAIN, and the log can be searched, filtered and saved', async () => {
+  const log = page.locator('#log');
+  const ta = page.locator('.query-view .sqled-ta').first();
+  await ta.fill('SELECT name FROM customers WHERE id = 1;\nSELECT * FROM missing_tbl');
+  await ta.press('F9');
+  await btn('OK').click(); // the error dialog
+  const line = log.locator('.log-line', { has: page.locator('.log-text', { hasText: /^SELECT name FROM customers WHERE id = 1$/ }) }).last();
+
+  // EXPLAIN on the session and database it ran in, in a new query tab.
+  await line.click({ button: 'right' });
+  await page.locator('.ctx-root .menu-item', { hasText: 'Explain' }).click();
+  await expect(page.locator('.tab.active .tab-title')).toHaveText(/^Query #\d+$/);
+  await expect(page.locator('.tab-pane.active .res-tab.res-plan')).toHaveClass(/active/);
+  await expect(page.locator('.tab-pane.active .sqled-ta')).toHaveValue('SELECT name FROM customers WHERE id = 1');
+  await page.locator('.tab.active .tab-x').click();
+  // Only statements EXPLAIN accepts.
+  await log.locator('.log-line', { hasText: /^.*USE `/ }).last().click({ button: 'right' });
+  await expect(page.locator('.ctx-root .menu-item', { hasText: 'Explain' })).toHaveClass(/disabled/);
+  await page.keyboard.press('Escape');
+  await line.click({ button: 'right' });
+  await page.locator('.ctx-root .menu-item', { hasText: 'Open in new query tab' }).click();
+  await expect(page.locator('.tab-pane.active .sqled-ta')).toHaveValue('SELECT name FROM customers WHERE id = 1');
+  await page.locator('.tab.active .tab-x').click();
+  await tab('Query').click();
+
+  // Find: Ctrl+F in the log, text filter, errors only.
+  await log.click();
+  await page.keyboard.press('Control+f');
+  const bar = page.locator('.log-find');
+  await expect(bar.locator('.log-q')).toBeFocused();
+  await page.keyboard.type('MISSING_TBL');
+  const shown = log.locator('.log-line:not(.log-hidden)');
+  await expect(shown).toHaveCount(3); // the statement, the server's error and the app's error note
+  await expect(bar.locator('.log-count')).toHaveText(/^3 of \d+ lines$/);
+  await bar.locator('.log-q').fill('');
+  await bar.getByRole('button', { name: 'Errors', exact: true }).click();
+  await expect(shown.last()).toContainText("missing_tbl' doesn't exist");
+  const texts = await shown.locator('.log-text').allTextContents();
+  expect(texts.at(-3)).toBe('SELECT * FROM missing_tbl'); // the statement that failed, then the two error lines
+  expect(await log.locator('.log-line.err:not(.log-hidden)').count()).toBeGreaterThan(0);
+
+  // Saved as a .sql file of the shown lines, with times as comments.
+  await page.evaluate(() => { window.showSaveFilePicker = undefined; });
+  const [download] = await Promise.all([page.waitForEvent('download'), bar.getByTitle(/^Save the shown lines/).click()]);
+  expect(download.suggestedFilename()).toMatch(/^zawsql-log-\d{4}-\d{2}-\d{2}-\d{4}\.sql$/);
+  const sql = readFileSync(await download.path(), 'utf8');
+  expect(sql).toMatch(/^\/\* ZawSQL SQL log, saved /);
+  expect(sql).toMatch(/\/\* \d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3} \*\/ SELECT \* FROM missing_tbl;/);
+  expect(sql).not.toContain('WHERE id = 1');
+
+  // Esc closes the bar and shows everything again.
+  await bar.locator('.log-q').press('Escape');
+  await expect(bar).toBeHidden();
+  await expect(log.locator('.log-line.log-hidden')).toHaveCount(0);
+});
+
 test('asks before UPDATE/DELETE without WHERE and runs nothing on cancel', async () => {
   const ta = page.locator('.query-view .sqled-ta').first();
   await ta.fill('DELETE FROM logs');

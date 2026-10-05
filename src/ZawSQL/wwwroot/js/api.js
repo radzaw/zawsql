@@ -1,4 +1,6 @@
 // Thin client for the local ZawSQL backend. Every call carries the per-process token.
+import { sidFromPath } from './loglogic.js';
+
 const TOKEN_KEY = 'zawsql-token';
 
 function readToken() {
@@ -48,7 +50,7 @@ export async function api(method, path, body, { signal, quiet } = {}) {
   if (res.status === 401) throw new ApiError('Not authorized. Restart ZawSQL to open a new window.');
   let j;
   try { j = await res.json(); } catch { throw new ApiError(`Unexpected response from the backend (HTTP ${res.status}).`); }
-  if (j.log?.length && !quiet) logSink(j.log, j.logTimes, j.logMs);
+  if (j.log?.length && !quiet) logSink(j.log, j.logTimes, j.logMs, { sid: sidFromPath(path) });
   if (!j.ok) throw new ApiError(j.error || 'Unknown error', j.code, j.data);
   return j.data;
 }

@@ -97,7 +97,7 @@ export class QueryView {
     });
     this.msg = h('div', { class: 'q-msg' });
     this.plan = null;
-    this.planView = new ExplainView({ onAnalyze: () => this.explain({ analyze: true, sql: this.plan?.statement }) });
+    this.planView = new ExplainView({ onAnalyze: () => this.explain({ analyze: true, sql: this.plan?.statement, ...this.planOn }) });
     this.planView.el.style.display = 'none';
     this.results = h('div', { class: 'q-results' }, this.resTabs, this.grid.el, this.planView.el, this.msg);
     this.body = h('div', { class: 'q-body' }, h('div', { class: 'q-main' }, this.edWrap, split, this.results));
@@ -534,9 +534,11 @@ export class QueryView {
   }
 
   /** Visual EXPLAIN of the statement at the cursor (or the selection); `sql` explains that text instead. */
-  async explain({ analyze = false, sql = null } = {}) {
+  /** sid/db: explain on that session and database instead of the selected ones (used from the SQL log). */
+  async explain({ analyze = false, sql = null, sid: onSid = null, db: onDb = null } = {}) {
     if (this.txPending) { try { await this.txPending; } catch { return; } }
-    const { sid, db } = this.app.sel;
+    const { sid, db } = onSid ? { sid: onSid, db: onDb } : this.app.sel;
+    this.planOn = onSid ? { sid: onSid, db: onDb } : null; // Analyze measures on the same session
     if (!sid) return this.app.showError(new Error('Not connected. Open a session first.'));
     if (sql == null) {
       const sel = this.editor.selection();

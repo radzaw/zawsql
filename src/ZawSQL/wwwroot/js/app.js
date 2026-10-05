@@ -142,8 +142,13 @@ class App {
       setTimestamps: on => { this.prefs.logTimestamps = on; this.saveStateSoon(); },
       slowMs: () => slowThreshold(this.prefs.slowLogMs),
       setSlowMs: ms => { this.prefs.slowLogMs = ms; this.saveStateSoon(); },
+      sessionName: sid => this.conns.get(sid)?.name ?? null,
+      openInTab: sql => this.openQueryTab(sql).editor.focus(),
+      canExplain: sid => this.conns.has(sid),
+      // On the session it ran on, in the database it last switched to (or the one selected for that session).
+      explain: (sql, sid, db) => this.openQueryTab(sql).explain({ sql, sid, db: db ?? (this.sel.sid === sid ? this.sel.db : null) }),
     });
-    setLogSink((lines, times, durations) => this.log.add(lines, '', times, durations));
+    setLogSink((lines, times, durations, meta) => this.log.add(lines, '', times, durations, meta));
     try { this.version = await get('/version', null, { quiet: true }); } catch { this.version = null; }
     this.library = new LibraryStore();
     await this.library.load();

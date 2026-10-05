@@ -177,6 +177,7 @@ kbd { font-family: var(--mono); font-size: 11px; background: var(--bg); border: 
 .splitter-h { height: 4px; cursor: row-resize; flex: none; }
 .splitter-v:hover, .splitter-h:hover { background: var(--sel); }
 #log { height: 110px; flex: none; }
+.log-wrap { position: relative; flex: none; display: flex; flex-direction: column; }
 #statusbar { display: flex; height: 22px; border-top: 1px solid var(--border-light); }
 .sb-cell { padding: 3px 10px; border-left: 1px solid var(--border-light); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sb-cell.grow { border-left: none; }
@@ -947,3 +948,19 @@ select.cell-inp { padding: 0 2px; }
 .cell-tip-text { padding: 5px 8px; white-space: pre-wrap; overflow-wrap: anywhere; overflow: hidden; min-height: 0; }
 .cell-tip-text.mono { font-family: var(--mono); font-size: 11.5px; }
 .cell-tip-info { flex: none; padding: 2px 8px 3px; border-top: 1px solid var(--border-light); color: var(--muted); font-size: 11px; }
+
+/* SQL log: find bar and filters */
+.log-line.log-hidden { display: none; }
+.log-find {
+  position: absolute; top: 4px; right: 20px; z-index: 5; display: flex; align-items: center; gap: 4px; padding: 3px 4px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 4px; box-shadow: var(--shadow); font-size: 12px;
+  max-width: calc(100% - 28px); flex-wrap: wrap;
+}
+.log-find .log-q { width: 200px; height: 22px; }
+.log-find .log-ses { height: 22px; max-width: 180px; }
+.log-tg { height: 22px; padding: 0 7px; border: 1px solid var(--border-light); border-radius: 3px; background: transparent; color: var(--text); cursor: pointer; font: inherit; }
+.log-tg:hover { background: var(--hover); border-color: var(--hover-border); }
+.log-tg.on { background: var(--sel); border-color: var(--sel-border); font-weight: 600; }
+.log-tg.icon { width: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+.log-tg.icon svg { width: 14px; height: 14px; }
+.log-count { white-space: nowrap; padding: 0 4px; font-variant-numeric: tabular-nums; }
