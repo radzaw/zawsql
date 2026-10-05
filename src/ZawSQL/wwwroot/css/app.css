@@ -35,6 +35,10 @@
   --new: #e8f8e8;
   --changed: #fff0b3;
   --err: #c00000;
+  --slow: #955700;
+  --slow-bg: #fff4dc;
+  --very-slow: #c42b1c;
+  --very-slow-bg: #fde7e4;
   --t-kw: #0000c0;
   --t-fn: #8a00b0;
   --t-str: #008000;
@@ -92,6 +96,10 @@
   --new: #203a26;
   --changed: #5a4b12;
   --err: #ff6b6b;
+  --slow: #f0b44c;
+  --slow-bg: #3d3220;
+  --very-slow: #ff8a7a;
+  --very-slow-bg: #452824;
   --t-kw: #7aa2ff;
   --t-fn: #d48ae6;
   --t-str: #8fcf7a;
@@ -408,6 +416,12 @@ select.cell-inp { padding: 0 2px; }
 .logpanel.no-ts .log-ts { display: none; }
 .log-line.err, .log-line.err span { color: var(--err); }
 .log-line.err .log-ts { color: var(--muted); }
+/* slow statement markers */
+.log-line.log-slow { background: var(--slow-bg); box-shadow: inset 3px 0 0 var(--slow); padding-left: 5px; }
+.log-line.log-very-slow { background: var(--very-slow-bg); box-shadow: inset 3px 0 0 var(--very-slow); }
+.log-dur { flex: none; align-self: flex-start; padding: 0 5px; border-radius: 3px; font-size: 11px; font-weight: 600; color: var(--slow); border: 1px solid var(--slow); font-variant-numeric: tabular-nums; }
+.log-very-slow .log-dur { color: var(--very-slow); border-color: var(--very-slow); }
+.log-line.log-hit { outline: 1px dashed var(--slow); outline-offset: -1px; }
 
 /* ---------- modal dialogs ---------- */
 .modal-bg { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; background: var(--backdrop); }
@@ -922,3 +936,14 @@ select.cell-inp { padding: 0 2px; }
 .mr-tag { flex: none; padding: 0 5px; border-radius: 3px; font-size: 10px; line-height: 15px; background: var(--sel); color: var(--text); }
 .mr-targets { margin-top: 6px; }
 .res-tab.res-summary { font-weight: 600; }
+
+/* full text of a grid cell that doesn't fit, on hover */
+.cell-tip {
+  position: fixed; z-index: 1000; max-width: min(640px, calc(100vw - 8px)); max-height: min(420px, 60vh); overflow: hidden;
+  display: flex; flex-direction: column; pointer-events: none;
+  background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 4px;
+  box-shadow: var(--shadow); font-size: 12px;
+}
+.cell-tip-text { padding: 5px 8px; white-space: pre-wrap; overflow-wrap: anywhere; overflow: hidden; min-height: 0; }
+.cell-tip-text.mono { font-family: var(--mono); font-size: 11.5px; }
+.cell-tip-info { flex: none; padding: 2px 8px 3px; border-top: 1px solid var(--border-light); color: var(--muted); font-size: 11px; }

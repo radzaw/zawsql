@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -13,21 +14,41 @@ public sealed class SqlLog
     public List<string> Items { get; } = [];
     /// <summary>When each item was logged (Unix time in milliseconds), for the timestamps in the UI's SQL log.</summary>
     public List<long> Times { get; } = [];
-    public void Add(string sql)
+    /// <summary>How long each statement took, from sending it until its results were read (ms); null for comments
+    /// and for statements whose end isn't measured. Drives the slow statement markers in the UI's SQL log.</summary>
+    public List<double?> Ms { get; } = [];
+    readonly List<long> starts = [];
+
+    /// <summary>Adds a line and returns its index, to pass to <see cref="Finish"/> once the statement is done.</summary>
+    public int Add(string sql)
     {
         lock (Items)
         {
             Items.Add(sql);
             Times.Add(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            Ms.Add(null);
+            starts.Add(Stopwatch.GetTimestamp());
+            return Items.Count - 1;
         }
     }
-    /// <summary>Adds a line logged elsewhere, keeping the time it was logged there.</summary>
-    public void Add(string sql, long time)
+    /// <summary>Adds a line logged elsewhere, keeping the time it was logged there and its duration.</summary>
+    public void Add(string sql, long time, double? ms = null)
     {
         lock (Items)
         {
             Items.Add(sql);
             Times.Add(time);
+            Ms.Add(ms);
+            starts.Add(0);
+        }
+    }
+    /// <summary>Records how long the statement logged at <paramref name="line"/> took (only the first call counts).</summary>
+    public void Finish(int line)
+    {
+        lock (Items)
+        {
+            if (line < 0 || line >= Ms.Count || Ms[line] != null || starts[line] == 0) return;
+            Ms[line] = Math.Round(Stopwatch.GetElapsedTime(starts[line]).TotalMilliseconds, 1);
         }
     }
 }
@@ -57,21 +78,29 @@ public static partial class Db
     private static partial Regex ParamRegex();
 
     /// <summary>Creates a command with positional parameters @p0, @p1, ... and logs it with literals substituted.</summary>
-    public static MySqlCommand Cmd(MySqlConnection c, SqlLog? log, string sql, object?[] args)
+    public static MySqlCommand Cmd(MySqlConnection c, SqlLog? log, string sql, object?[] args) => Cmd(c, log, sql, args, out _);
+
+    /// <summary>Like <see cref="Cmd(MySqlConnection, SqlLog?, string, object?[])"/>; <paramref name="line"/> is the log line
+    /// to pass to <see cref="SqlLog.Finish"/> when the statement is done (-1 without a log).</summary>
+    public static MySqlCommand Cmd(MySqlConnection c, SqlLog? log, string sql, object?[] args, out int line)
     {
         var cmd = c.CreateCommand();
         cmd.CommandText = sql;
         for (var i = 0; i < args.Length; i++)
             cmd.Parameters.AddWithValue("@p" + i, args[i] ?? DBNull.Value);
-        log?.Add(args.Length == 0 ? sql : ParamRegex().Replace(sql, m => SqlLiteral.FromValue(args[int.Parse(m.Groups[1].Value)], "")));
+        line = log?.Add(args.Length == 0 ? sql : ParamRegex().Replace(sql, m => SqlLiteral.FromValue(args[int.Parse(m.Groups[1].Value)], ""))) ?? -1;
         return cmd;
     }
 
     public static async Task<ResultSet> QueryAsync(MySqlConnection c, SqlLog? log, string sql, CancellationToken ct, params object?[] args)
     {
-        await using var cmd = Cmd(c, log, sql, args);
-        await using var r = await cmd.ExecuteReaderAsync(ct);
-        return await Values.ReadAsync(r, int.MaxValue, ct);
+        await using var cmd = Cmd(c, log, sql, args, out var line);
+        try
+        {
+            await using var r = await cmd.ExecuteReaderAsync(ct);
+            return await Values.ReadAsync(r, int.MaxValue, ct);
+        }
+        finally { log?.Finish(line); }
     }
 
     public static async Task<List<Dictionary<string, string?>>> RowsAsync(MySqlConnection c, SqlLog? log, string sql, CancellationToken ct, params object?[] args)
@@ -93,15 +122,16 @@ public static partial class Db
 
     public static async Task<string?> ScalarAsync(MySqlConnection c, SqlLog? log, string sql, CancellationToken ct, params object?[] args)
     {
-        await using var cmd = Cmd(c, log, sql, args);
-        var v = await cmd.ExecuteScalarAsync(ct);
-        return Values.Format(v, "");
+        await using var cmd = Cmd(c, log, sql, args, out var line);
+        try { return Values.Format(await cmd.ExecuteScalarAsync(ct), ""); }
+        finally { log?.Finish(line); }
     }
 
     public static async Task<int> ExecAsync(MySqlConnection c, SqlLog? log, string sql, CancellationToken ct, params object?[] args)
     {
-        await using var cmd = Cmd(c, log, sql, args);
-        return await cmd.ExecuteNonQueryAsync(ct);
+        await using var cmd = Cmd(c, log, sql, args, out var line);
+        try { return await cmd.ExecuteNonQueryAsync(ct); }
+        finally { log?.Finish(line); }
     }
 }
 

@@ -46,8 +46,10 @@ public static partial class RowWriter
                 throw new ApiException($"Unknown row operation: {op.Op}");
         }
 
-        await using var cmd = Db.Cmd(c, log, sql, args.ToArray());
-        var affected = await cmd.ExecuteNonQueryAsync(ct);
+        await using var cmd = Db.Cmd(c, log, sql, args.ToArray(), out var line);
+        int affected;
+        try { affected = await cmd.ExecuteNonQueryAsync(ct); }
+        finally { log.Finish(line); }
         if (affected == 0 && op.Op != "insert")
             throw new ApiException("No row was affected. The row may have been changed or deleted in the meantime - refresh the data and try again.");
         var insertId = cmd.LastInsertedId;

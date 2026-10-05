@@ -144,6 +144,27 @@ test('runs queries with F9 and edits the result in place', async () => {
   await expect.poll(() => scalar('SELECT name FROM customers WHERE id = 3')).toBe('Caroline');
 });
 
+test('shows the full text of a cell that does not fit when the mouse rests on it', async () => {
+  const ta = page.locator('.query-view .sqled-ta').first();
+  await ta.fill("SELECT CONCAT(REPEAT('abc ', 99), 'END') AS long_text, 'x' AS short, CONCAT('one', '\n', 'two') AS two_lines");
+  await ta.press('F9');
+  await expect(page.locator('.res-tab', { hasText: 'Result #1 (1r × 3c)' })).toBeVisible();
+  const cells = page.locator('.q-results .gr').first().locator('.gc');
+  const tip = page.locator('.cell-tip');
+  await cells.nth(1).hover();
+  await expect(tip).toBeVisible();
+  await expect(tip.locator('.cell-tip-text')).toHaveText(/^(abc ){99}END$/);
+  await expect(tip.locator('.cell-tip-info')).toHaveText('399 characters');
+  await cells.nth(2).hover(); // fits: no preview
+  await expect(tip).toBeHidden();
+  await cells.nth(3).hover(); // the grid shows "one¶two"; the preview has the real line break
+  await expect(tip).toBeVisible();
+  await expect(tip.locator('.cell-tip-info')).toHaveText('7 characters · 2 lines');
+  expect(await tip.locator('.cell-tip-text').evaluate(e => e.textContent)).toBe('one\ntwo');
+  await page.locator('#log').hover();
+  await expect(tip).toBeHidden();
+});
+
 test('the SQL log shows a timestamp with milliseconds on every line, and can hide them', async () => {
   const log = page.locator('#log');
   const last = log.locator('.log-line', { hasText: 'SELECT id, name FROM customers ORDER BY id' }).last();
@@ -154,6 +175,36 @@ test('the SQL log shows a timestamp with milliseconds on every line, and can hid
   await log.click({ button: 'right' });
   await page.locator('.ctx-root .menu-item', { hasText: 'Show timestamps' }).click();
   await expect(last.locator('.log-ts')).toBeVisible();
+});
+
+test('the SQL log marks statements slower than the chosen threshold with their duration', async () => {
+  const log = page.locator('#log');
+  const setThreshold = async label => {
+    await log.click({ button: 'right' });
+    await page.locator('.ctx-root .menu-item', { hasText: 'Mark slow statements' }).hover();
+    await page.locator('.ctx-root .submenu .menu-item', { hasText: label }).click();
+  };
+  await setThreshold('Slower than 250 ms');
+  const ta = page.locator('.query-view .sqled-ta').first();
+  await ta.fill('SELECT 41;\nDO SLEEP(0.4);\nSELECT 42');
+  await ta.press('F9');
+  const slow = log.locator('.log-line', { hasText: 'DO SLEEP(0.4)' }).last();
+  await expect(slow).toHaveClass(/log-slow/);
+  await expect(slow.locator('.log-dur')).toHaveText(/^\d+ ms$/);
+  await expect(slow).toHaveAttribute('title', /^Took \d+ ms$/);
+  const quick = log.locator('.log-line', { hasText: 'SELECT 42' }).last();
+  await expect(quick).not.toHaveClass(/log-slow/);
+  await expect(quick).toHaveAttribute('title', /^Took /); // every statement says how long it took on hover
+
+  // Jump to it, then switch the markers off and back to the default.
+  await log.click({ button: 'right' });
+  await page.locator('.ctx-root .menu-item', { hasText: 'Next slow statement' }).click();
+  await expect(log.locator('.log-hit')).toHaveCount(1);
+  await setThreshold('Off');
+  await expect(slow).not.toHaveClass(/log-slow/);
+  await expect(slow.locator('.log-dur')).toHaveCount(0);
+  await setThreshold('Slower than 1.00 s');
+  await expect(log.locator('.log-slow')).toHaveCount(0);
 });
 
 test('asks before UPDATE/DELETE without WHERE and runs nothing on cancel', async () => {

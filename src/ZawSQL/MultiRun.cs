@@ -39,7 +39,7 @@ public static class MultiRun
             foreach (var res in results)
             {
                 log.Add($"/* On \"{res.Name}\": {(res.Error != null ? "failed – " + res.Error.Replace("*/", "* /") : $"{res.Executed} of {r.Statements.Length} statements in {res.Ms:0} ms")} */");
-                foreach (var (line, time) in res.Log) log.Add(line, time);
+                foreach (var (line, time, ms) in res.Log) log.Add(line, time, ms);
             }
             return new { servers = results.Select(x => x.ToJson()).ToList(), cancelled = cts.IsCancellationRequested };
         }
@@ -61,7 +61,7 @@ public static class MultiRun
         public double Ms { get; set; }
         public List<object> Sets { get; } = [];
         public List<object> Errors { get; } = [];
-        public List<(string Line, long Time)> Log { get; } = [];
+        public List<(string Line, long Time, double? Ms)> Log { get; } = [];
         public object ToJson() => new { session = Session, name = Name, ok = Error == null && Errors.Count == 0, error = Error, production = Production, readOnly = ReadOnly, executed = Executed, affected = Affected, ms = Ms, resultSets = Sets, errors = Errors };
     }
 
@@ -117,7 +117,7 @@ public static class MultiRun
                     if (r.StopOnError) break;
                     continue;
                 }
-                log.Add(sql);
+                var line = log.Add(sql);
                 await using var cmd = c.CreateCommand();
                 cmd.CommandText = sql;
                 cmd.CommandTimeout = 0;
@@ -135,10 +135,12 @@ public static class MultiRun
                         } while (await reader.NextResultAsync(ct));
                         if (reader.RecordsAffected > 0) res.Affected += reader.RecordsAffected;
                     }
+                    log.Finish(line);
                     res.Executed++;
                 }
                 catch (MySqlException ex) when (!ct.IsCancellationRequested)
                 {
+                    log.Finish(line);
                     log.Add($"/* SQL Error ({ex.Number}): {ex.Message} */");
                     res.Errors.Add(new { statement = i, message = ex.Message, code = ex.Number });
                     if (r.StopOnError) break;
@@ -163,7 +165,7 @@ public static class MultiRun
             if (own != null) await own.DisposeAsync();
             if (temp != null) await cm.DisconnectAsync(temp.Id);
             if (entered) gate.Release();
-            lock (log.Items) res.Log.AddRange(log.Items.Zip(log.Times));
+            lock (log.Items) res.Log.AddRange(log.Items.Select((l, i) => (l, log.Times[i], log.Ms[i])));
         }
         return res;
     }

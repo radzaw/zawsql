@@ -32,6 +32,24 @@ public class EditAndQueryTests(TestDatabase t)
     }
 
     [DbFact]
+    public async Task Each_logged_statement_says_how_long_it_took()
+    {
+        var r = await t.App.PostAsync($"/s/{t.Sid}/exec", new { statements = new[] { "SELECT 1", "DO SLEEP(0.4)", "SELECT * FROM no_such_table" }, database = t.Db, stopOnError = false });
+        r.Expect();
+        Assert.Equal(r.Log.Length, r.LogMs.Length);
+        var ms = (string sql) => r.LogMs[Array.IndexOf(r.Log, sql)];
+        Assert.InRange(ms("SELECT 1")!.Value, 0, 300);
+        Assert.InRange(ms("DO SLEEP(0.4)")!.Value, 380, 5000);
+        Assert.NotNull(ms("SELECT * FROM no_such_table")); // failed statements are timed too
+        Assert.All(r.Log.Select((l, i) => (l, i)).Where(x => x.l.StartsWith("/*")), x => Assert.Null(r.LogMs[x.i]));
+
+        // Statements run by the app itself (here the Data tab's) are timed as well.
+        var d = await t.App.GetAsync($"/s/{t.Sid}/data?db={t.Db}&table=customers");
+        d.Expect();
+        Assert.Contains(d.Log.Select((l, i) => (l, i)), x => x.l.StartsWith("SELECT") && d.LogMs[x.i] != null);
+    }
+
+    [DbFact]
     public async Task Update_insert_and_delete_rows()
     {
         await t.ExecRootAsync("INSERT INTO customers (id, name) VALUES (100, 'Edit me')");

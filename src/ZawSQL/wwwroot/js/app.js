@@ -19,10 +19,11 @@ import { updateDialog, autoCheckUpdates, whatsNewAfterUpdate, whatsNewDialog } f
 import { LibraryStore, editSnippetDialog } from './views/library.js';
 import { snippetVars } from './library.js';
 import { formatSql } from './sqlformat.js';
+import { DEFAULT_SLOW_MS, slowThreshold } from './logslow.js';
 import { sessionManager, confirmHostKey, exportDumpDialog, runSqlFile, createDatabaseDialog, preferencesDialog, aboutDialog } from './views/tools.js';
 
 const TYPE_LABEL = { table: 'Table', view: 'View', procedure: 'Procedure', function: 'Function', trigger: 'Trigger', event: 'Event' };
-const DEFAULT_PREFS = { rowsPerPage: 1000, maxResultRows: 10000, theme: 'system', editorFontSize: 13, confirmNoWhere: true, formatKeywordCase: 'upper', formatIndent: '2', checkUpdates: true, showWhatsNew: true, txDefault: 'auto', logTimestamps: true };
+const DEFAULT_PREFS = { rowsPerPage: 1000, maxResultRows: 10000, theme: 'system', editorFontSize: 13, confirmNoWhere: true, formatKeywordCase: 'upper', formatIndent: '2', checkUpdates: true, showWhatsNew: true, txDefault: 'auto', logTimestamps: true, slowLogMs: DEFAULT_SLOW_MS };
 
 // ---------------------------------------------------------------- tabs
 
@@ -139,8 +140,10 @@ class App {
     this.log = new LogPanel(document.getElementById('log'), {
       timestamps: () => this.prefs.logTimestamps !== false,
       setTimestamps: on => { this.prefs.logTimestamps = on; this.saveStateSoon(); },
+      slowMs: () => slowThreshold(this.prefs.slowLogMs),
+      setSlowMs: ms => { this.prefs.slowLogMs = ms; this.saveStateSoon(); },
     });
-    setLogSink((lines, times) => this.log.add(lines, '', times));
+    setLogSink((lines, times, durations) => this.log.add(lines, '', times, durations));
     try { this.version = await get('/version', null, { quiet: true }); } catch { this.version = null; }
     this.library = new LibraryStore();
     await this.library.load();
@@ -189,6 +192,7 @@ class App {
     const dark = p.theme === 'dark' || (p.theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
     document.documentElement.style.setProperty('--ed-font-size', p.editorFontSize + 'px');
+    this.log?.markAll(); // the slow statement threshold may have changed
     // The app window's title bar follows theme-color in Chromium app windows.
     document.querySelector('meta[name=theme-color]')?.setAttribute('content', dark ? '#2b2d30' : '#f0f0f0');
     try { sessionStorage.setItem('zawsql-theme', p.theme); } catch { /* storage unavailable */ }

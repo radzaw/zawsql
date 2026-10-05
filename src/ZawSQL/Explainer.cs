@@ -71,9 +71,15 @@ public static partial class Explainer
             .Select(r => new { level = r["Level"], code = r["Code"], message = r["Message"] }).ToList();
 
         ResultSet table;
-        await using (var cmd = Db.Cmd(c, log, "EXPLAIN " + stmt, []))
-        await using (var r = await cmd.ExecuteReaderAsync(ct))
-            table = await Values.ReadAsync(r, 1000, ct);
+        await using (var cmd = Db.Cmd(c, log, "EXPLAIN " + stmt, [], out var line))
+        {
+            try
+            {
+                await using var r = await cmd.ExecuteReaderAsync(ct);
+                table = await Values.ReadAsync(r, 1000, ct);
+            }
+            finally { log.Finish(line); }
+        }
 
         if (analyze && !mariaDb)
         {

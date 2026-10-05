@@ -9,6 +9,8 @@ public sealed record ApiResult(bool Ok, JsonElement Data, string? Error, int? Co
 {
     /// <summary>When each Log line was logged (Unix ms).</summary>
     public long[] LogTimes { get; init; } = [];
+    /// <summary>How long each Log line's statement took (ms); null for comments.</summary>
+    public double?[] LogMs { get; init; } = [];
 
     public JsonElement Expect()
     {
@@ -59,6 +61,7 @@ public sealed class TestApp : IAsyncDisposable
             json.GetProperty("log").EnumerateArray().Select(x => x.GetString() ?? "").ToArray())
         {
             LogTimes = json.TryGetProperty("logTimes", out var lt) && lt.ValueKind == JsonValueKind.Array ? lt.EnumerateArray().Select(x => x.GetInt64()).ToArray() : [],
+            LogMs = json.TryGetProperty("logMs", out var lm) && lm.ValueKind == JsonValueKind.Array ? lm.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.Number ? x.GetDouble() : (double?)null).ToArray() : [],
         };
     }
 

@@ -923,10 +923,11 @@ public sealed class ImportJob : IAsyncDisposable
     async Task<bool> FlushAsync(List<(long row, string tuple)> batch, List<object> errors, SqlLog? log, CancellationToken ct)
     {
         var sql = Head + string.Join(",\n", batch.Select(b => b.tuple)) + Tail;
-        if (log != null) log.Add(sql.Length > 2000 ? sql[..2000] + $"\n/* … {batch.Count} rows per statement; further statements are not logged */" : sql);
+        var line = log?.Add(sql.Length > 2000 ? sql[..2000] + $"\n/* … {batch.Count} rows per statement; further statements are not logged */" : sql) ?? -1;
         try
         {
             await ExecAsync(sql, batch[0].row, ct);
+            log?.Finish(line);
             return true;
         }
         catch (MySqlException) when (!ct.IsCancellationRequested && Conn.State == System.Data.ConnectionState.Open)

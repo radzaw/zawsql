@@ -2,9 +2,24 @@
 // column resizing, sorting callbacks and in-place editing.
 import { h, esc, isNumericKind } from './util.js';
 import { icon } from './icons.js';
+import { needsPreview, previewText, placePreview, PREVIEW_DELAY } from './cellpreview.js';
 
 const GRID_FONT = '12px "Segoe UI", system-ui, Ubuntu, Cantarell, "Noto Sans", sans-serif';
 const measureCtx = document.createElement('canvas').getContext('2d');
+
+// One preview element for all grids.
+let tipEl = null;
+function cellTip() {
+  if (!tipEl) {
+    const text = h('div', { class: 'cell-tip-text' });
+    const info = h('div', { class: 'cell-tip-info' });
+    tipEl = { el: h('div', { class: 'cell-tip', role: 'tooltip' }, text, info), text, info };
+    tipEl.el.style.display = 'none';
+    document.body.append(tipEl.el);
+    addEventListener('blur', () => { tipEl.el.style.display = 'none'; });
+  }
+  return tipEl;
+}
 
 export class Grid {
   constructor(opts = {}) {
@@ -38,10 +53,17 @@ export class Grid {
     this.el = h('div', { class: 'grid' }, this.header, this.body, this.emptyEl);
 
     this.body.addEventListener('scroll', () => {
+      this.hidePreview();
       this.headerInner.style.transform = `translateX(${-this.body.scrollLeft}px)`;
       this.scheduleRender();
     });
+    this.body.addEventListener('mousedown', () => this.hidePreview(), true);
     this.body.addEventListener('mousedown', e => this.onMouseDown(e));
+    // Full text of a cell that doesn't fit, after the pointer rests on it.
+    this.body.addEventListener('mousemove', e => this.onHover(e));
+    this.body.addEventListener('mouseleave', () => this.hidePreview());
+    this.body.addEventListener('keydown', () => this.hidePreview(), true);
+    this.body.addEventListener('wheel', () => this.hidePreview(), { passive: true });
     this.body.addEventListener('contextmenu', e => this.onCtx(e));
     this.body.addEventListener('keydown', e => this.onKeyDown(e));
     this.header.addEventListener('mousedown', e => this.onHeaderDown(e));
@@ -58,6 +80,7 @@ export class Grid {
   focus() { this.body.focus({ preventScroll: true }); }
 
   setData(columns, rows, { keepWidths = false, keepPos = false } = {}) {
+    this.hidePreview();
     if (this.editing) this.cancelEdit();
     const same = keepWidths && columns.length === this.columns.length && columns.every((c, i) => c.name === this.columns[i].name);
     this.columns = columns;
@@ -191,6 +214,46 @@ export class Grid {
     const showEmpty = !this.rows.length && this.o.emptyText;
     this.emptyEl.textContent = showEmpty ? this.o.emptyText : '';
     this.emptyEl.style.display = showEmpty ? '' : 'none';
+  }
+
+  onHover(e) {
+    if (e.buttons || this.editing) return this.hidePreview();
+    const cell = e.target.closest?.('.gc');
+    const p = cell && !cell.classList.contains('gutter') ? this.hit(e) : null;
+    if (!p || p.r < 0 || p.c < 0) return this.hidePreview();
+    const key = `${p.r}:${p.c}`;
+    if (key === this.tipKey) return;
+    this.hidePreview();
+    this.tipKey = key;
+    this.tipTimer = setTimeout(() => this.showPreview(p.r, p.c, cell), PREVIEW_DELAY);
+  }
+
+  showPreview(r, c, cell) {
+    if (!cell.isConnected || this.editing) return;
+    const col = this.columns[c];
+    let v = this.rows[r]?.[c];
+    if (v == null) return;
+    if (col.fmt) v = col.fmt(v);
+    if (!needsPreview(v, cell.scrollWidth > cell.clientWidth + 1)) return;
+    const p = previewText(v);
+    const tip = cellTip();
+    tip.text.textContent = p.text;
+    tip.text.classList.toggle('mono', p.json || col.kind === 'binary');
+    tip.info.textContent = p.info + (p.more ? ` · ${p.more.toLocaleString('en-US')} more not shown` : '');
+    tip.el.style.visibility = 'hidden';
+    tip.el.style.display = 'block';
+    const at = placePreview(cell.getBoundingClientRect(), { width: tip.el.offsetWidth, height: tip.el.offsetHeight }, { width: innerWidth, height: innerHeight });
+    Object.assign(tip.el.style, { left: at.left + 'px', top: at.top + 'px', visibility: '' });
+    this.tipShown = true;
+  }
+
+  hidePreview() {
+    clearTimeout(this.tipTimer);
+    this.tipKey = null;
+    if (this.tipShown) {
+      this.tipShown = false;
+      if (tipEl) tipEl.el.style.display = 'none';
+    }
   }
 
   hit(e) {

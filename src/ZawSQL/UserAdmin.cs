@@ -163,12 +163,13 @@ public static class UserAdmin
             if (stmt.Contains(PasswordToken) && req.Password == null)
                 throw new ApiException("A password is required.");
             var sql = req.Password == null ? stmt : stmt.Replace(PasswordToken, SqlLiteral.Quote(req.Password));
-            log.Add(stmt.Replace(PasswordToken, "'***'"));
+            var line = log.Add(stmt.Replace(PasswordToken, "'***'"));
             try
             {
                 await using var cmd = c.CreateCommand();
                 cmd.CommandText = sql;
                 await cmd.ExecuteNonQueryAsync(ct);
+                log.Finish(line);
             }
             catch (MySqlException ex)
             {

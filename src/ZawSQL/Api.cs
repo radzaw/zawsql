@@ -21,33 +21,34 @@ public static class Api
 
     const string ReadOnlyMessage = "This session is in read-only mode; changes are not allowed.";
 
-    /// <summary>LogTimes: when each Log line was logged (Unix ms), shown as timestamps in the SQL log.</summary>
-    sealed record Response(bool Ok, object? Data, string? Error, int? Code, List<string> Log, List<long>? LogTimes = null);
+    /// <summary>LogTimes: when each Log line was logged (Unix ms), shown as timestamps in the SQL log.
+    /// LogMs: how long each statement took (ms), null for comments; the SQL log marks slow ones.</summary>
+    sealed record Response(bool Ok, object? Data, string? Error, int? Code, List<string> Log, List<long>? LogTimes = null, List<double?>? LogMs = null);
 
     static async Task<IResult> Run(Func<SqlLog, Task<object?>> body)
     {
         var log = new SqlLog();
         try
         {
-            return Results.Json(new Response(true, await body(log), null, null, log.Items, log.Times));
+            return Results.Json(new Response(true, await body(log), null, null, log.Items, log.Times, log.Ms));
         }
         catch (MySqlException ex)
         {
             log.Add($"/* SQL Error ({ex.Number}): {ex.Message} */");
-            return Results.Json(new Response(false, null, ex.Message, ex.Number, log.Items, log.Times));
+            return Results.Json(new Response(false, null, ex.Message, ex.Number, log.Items, log.Times, log.Ms));
         }
         catch (SshHostKeyUnknownException ex)
         {
             log.Add($"/* {ex.Message} Fingerprint: {ex.Fingerprint} */");
-            return Results.Json(new Response(false, new { host = ex.Host, port = ex.Port, fingerprint = ex.Fingerprint }, ex.Message, SshHostKeyUnknown, log.Items, log.Times));
+            return Results.Json(new Response(false, new { host = ex.Host, port = ex.Port, fingerprint = ex.Fingerprint }, ex.Message, SshHostKeyUnknown, log.Items, log.Times, log.Ms));
         }
         catch (OperationCanceledException)
         {
-            return Results.Json(new Response(false, null, "The operation was cancelled.", null, log.Items, log.Times));
+            return Results.Json(new Response(false, null, "The operation was cancelled.", null, log.Items, log.Times, log.Ms));
         }
         catch (Exception ex)
         {
-            return Results.Json(new Response(false, null, ex.Message, null, log.Items, log.Times));
+            return Results.Json(new Response(false, null, ex.Message, null, log.Items, log.Times, log.Ms));
         }
     }
 
@@ -94,17 +95,17 @@ public static class Api
             return RunSync(() => null);
         });
         api.MapGet("/state", (SessionStore st) => RunSync(() => st.LoadState()));
-
-        // ---- run the same statements on several saved sessions ----
-        api.MapPost("/multi/run", (MultiRunRequest req, SessionStore st, ConnectionManager cm, CancellationToken ct) => Run(async log =>
-            await MultiRun.RunAsync(req, st, cm, log, ct)));
-        api.MapPost("/multi/cancel", (MultiCancelRequest req) => RunSync(() => new { cancelled = MultiRun.Cancel(req.RunId) }));
         api.MapPut("/state", async (HttpRequest req, SessionStore st) =>
         {
             using var doc = await JsonDocument.ParseAsync(req.Body);
             st.SaveState(doc.RootElement.GetRawText());
             return Results.Json(new Response(true, null, null, null, []));
         });
+
+        // ---- run the same statements on several saved sessions ----
+        api.MapPost("/multi/run", (MultiRunRequest req, SessionStore st, ConnectionManager cm, CancellationToken ct) => Run(async log =>
+            await MultiRun.RunAsync(req, st, cm, log, ct)));
+        api.MapPost("/multi/cancel", (MultiCancelRequest req) => RunSync(() => new { cancelled = MultiRun.Cancel(req.RunId) }));
 
         api.MapGet("/library", (SessionStore st) => RunSync(() => st.LoadLibrary()));
         api.MapPut("/library", async (HttpRequest req, SessionStore st) =>
@@ -290,8 +291,8 @@ public static class Api
                     if (req.StopOnError) break;
                     continue;
                 }
-                if (i < 200) log.Add(sql);
-                else if (i == 200) log.Add($"/* ... {req.Statements.Length - 200} more statements not logged */");
+                var line = i < 200 ? log.Add(sql) : -1;
+                if (i == 200) log.Add($"/* ... {req.Statements.Length - 200} more statements not logged */");
                 await using var cmd = c.CreateCommand();
                 cmd.CommandText = sql;
                 cmd.CommandTimeout = 0;
@@ -310,6 +311,7 @@ public static class Api
                         } while (await r.NextResultAsync(ct));
                         if (r.RecordsAffected > 0) affected += r.RecordsAffected;
                     }
+                    log.Finish(line);
                     if (cmd.LastInsertedId > 0) insertId = cmd.LastInsertedId;
                     executed++;
                     if (tab != null)
@@ -341,6 +343,7 @@ public static class Api
                 }
                 finally
                 {
+                    log.Finish(line);
                     if (tab != null) tab.Running = null; else ses.Running = null;
                 }
             }
@@ -452,10 +455,14 @@ public static class Api
             if (ses.Profile.ReadOnly && !Maintenance.IsReadOnly(req.Op))
                 throw new ApiException("Only CHECK and CHECKSUM are available in read-only mode.");
             await using var c = await cm.OpenMetaAsync(ses, ct);
-            await using var cmd = Db.Cmd(c, log, sql, []);
+            await using var cmd = Db.Cmd(c, log, sql, [], out var line);
             cmd.CommandTimeout = 0; // OPTIMIZE / REPAIR can take a long time on big tables
-            await using var r = await cmd.ExecuteReaderAsync(ct);
-            return await Values.ReadAsync(r, int.MaxValue, ct);
+            try
+            {
+                await using var r = await cmd.ExecuteReaderAsync(ct);
+                return await Values.ReadAsync(r, int.MaxValue, ct);
+            }
+            finally { log.Finish(line); }
         }));
 
         // ---- CSV / Excel import ----
