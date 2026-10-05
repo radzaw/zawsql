@@ -376,6 +376,48 @@ test('runs statements on several servers and combines the results', async () => 
   await exec("DELETE FROM logs WHERE msg = 'multi'");
 });
 
+test('server groups: save the selected servers as a group and run on it in one click', async () => {
+  const ta = page.locator('.query-view .sqled-ta').first();
+  await ta.fill('SELECT DATABASE() AS db');
+  await ta.press('Control+Alt+F9');
+  const dlg = page.locator('.modal.mr-modal');
+  await expect(dlg.locator('.mr-groups')).toContainText('No groups yet.');
+  await expect(dlg.locator('.mr-count')).toHaveText('2 selected'); // the last choice
+  await dlg.getByRole('button', { name: 'Save as group…' }).click();
+  const prompt = page.locator('.modal').last();
+  await prompt.locator('input').fill('Both E2E');
+  await btn('OK').click();
+  const chip = dlg.locator('.mr-chip', { hasText: 'Both E2E' });
+  await expect(chip.locator('.mr-group')).toHaveClass(/on/); // matches the selection
+  await expect(chip.locator('.mr-group')).toHaveAttribute('title', `2 servers · ${schema} – click to select them`);
+  // Clicking the group selects exactly its servers again.
+  await dlg.getByRole('button', { name: 'None', exact: true }).click();
+  await expect(chip.locator('.mr-group')).not.toHaveClass(/on/);
+  await chip.locator('.mr-group').click();
+  await expect(dlg.locator('.mr-count')).toHaveText('2 selected');
+  await btn('Cancel').click();
+
+  // Run on the group from the server button's menu: no picker, read-only statements need no confirmation.
+  await page.locator('.query-view .tbtn[title^="Run on several servers"]').first().click({ button: 'right' });
+  await page.locator('.ctx-root .menu-item', { hasText: 'Run on "Both E2E"' }).click();
+  await expect(page.locator('.q-msg')).toContainText('"Both E2E": 2 servers OK');
+  const rows = page.locator('.q-results .gr');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0).locator('.gc').nth(2)).toHaveText(schema); // the group's database
+  // And from the Query menu.
+  await page.locator('#menubar .menubar-item', { hasText: /^Query$/ }).click();
+  await page.locator('.ctx-root .menu-item', { hasText: 'Run on group' }).hover();
+  await expect(page.locator('.ctx-root .submenu .menu-item', { hasText: 'Both E2E' })).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  // Deleting asks first.
+  await ta.press('Control+Alt+F9');
+  await dlg.locator('.mr-chip', { hasText: 'Both E2E' }).locator('.mr-group-x').click();
+  await btn('Delete').click();
+  await expect(dlg.locator('.mr-groups')).toContainText('No groups yet.');
+  await btn('Cancel').click();
+});
+
 test('saves queries to the library and expands snippets', async () => {
   const name = 'Active ' + schema;
   const ta = page.locator('.query-view .sqled-ta').first();

@@ -13,8 +13,8 @@ import { exportGridDialog } from './tools.js';
 import { attachLibraryPanel, editQueryDialog } from './library.js';
 import { findSnippet } from '../library.js';
 import { ExplainView } from './explain.js';
-import { pickServers, confirmMultiRun } from './multirun.js';
-import { combineResults, summarySet, serverStatus, runSummary } from '../multirunlogic.js';
+import { pickServers, groupTargets, confirmMultiRun } from './multirun.js';
+import { combineResults, summarySet, serverStatus, runSummary, sortGroups } from '../multirunlogic.js';
 
 const DDL_RE = /^\s*(?:\/\*.*?\*\/\s*)*(create|drop|alter|rename|truncate)\b/is;
 
@@ -39,7 +39,16 @@ export class QueryView {
     this.runBtn = btn('play', 'Run', 'Execute SQL (F9)', () => this.run('all'));
     this.runSelBtn = btn('playsel', '', 'Execute selection (Ctrl+F9)', () => this.run('selection'));
     this.runCurBtn = btn('playline', '', 'Execute current query (Ctrl+Shift+F9)', () => this.run('current'));
-    this.multiBtn = btn('server', '', 'Run on several servers (Ctrl+Alt+F9)', () => this.runMulti());
+    this.multiBtn = btn('server', '', 'Run on several servers (Ctrl+Alt+F9) – right-click for server groups', () => this.runMulti());
+    this.multiBtn.addEventListener('contextmenu', e => {
+      e.preventDefault();
+      const groups = sortGroups(app.state.serverGroups);
+      contextMenu(e.clientX, e.clientY, [
+        ...groups.map(g => ({ label: `Run on "${g.name}"`, icon: 'server', disabled: this.running, onClick: () => this.runMulti({ group: g.name }) })),
+        groups.length ? '-' : null,
+        { label: 'Choose servers…', disabled: this.running, onClick: () => this.runMulti() },
+      ].filter(Boolean));
+    });
     this.stopBtn = btn('stop', '', 'Stop running query', () => this.stop());
     this.stopBtn.disabled = true;
     this.dbLabel = h('span', { class: 'muted' });
@@ -416,8 +425,8 @@ export class QueryView {
     this.renderTx();
   }
 
-  /** Runs the editor's statements (or the selection) on several saved sessions and combines the results. */
-  async runMulti() {
+  /** Runs the editor's statements (or the selection) on several saved sessions and combines the results; group: on that saved group, without asking which servers. */
+  async runMulti({ group = null } = {}) {
     if (this.running || this.asking) return;
     const sel = this.editor.selection();
     const text = sel.start === sel.end ? this.editor.value : sel.text;
@@ -428,7 +437,7 @@ export class QueryView {
     try {
       stmts = await fillParams(this.app, written, { action: 'Run on several servers' });
       if (!stmts) return;
-      const pick = await pickServers(this.app, { database: this.app.sel.db || '' });
+      const pick = group ? await groupTargets(this.app, group) : await pickServers(this.app, { database: this.app.sel.db || '' });
       if (!pick) return;
       const sqls = stmts.map(s => s.sql);
       if (!(await confirmMultiRun(pick.items, sqls))) {
@@ -446,8 +455,10 @@ export class QueryView {
     const t0 = Date.now();
     const n = pick.sessions.length;
     this.msg.className = 'q-msg';
-    this.msg.textContent = `Executing on ${n} server${n === 1 ? '' : 's'}…`;
-    this.timer = setInterval(() => { this.msg.textContent = `Executing on ${n} server${n === 1 ? '' : 's'}… ${fmtElapsed(Date.now() - t0)}`; }, 500);
+    const servers = `${n} server${n === 1 ? '' : 's'}`;
+    const target = pick.group ? `"${pick.group}" (${servers})` : servers;
+    this.msg.textContent = `Executing on ${target}…`;
+    this.timer = setInterval(() => { this.msg.textContent = `Executing on ${target}… ${fmtElapsed(Date.now() - t0)}`; }, 500);
     this.app.setStatus('Executing on several servers…');
     try {
       const r = await post('/multi/run', { runId: this.multiRunId, sessions: pick.sessions, statements: sqls, database: pick.database || null, maxRows: this.app.prefs.maxResultRows, stopOnError: pick.stopOnError });
@@ -460,7 +471,7 @@ export class QueryView {
       this.showSet(this.sets.length > 1 && r.servers.every(s => serverStatus(s) === 'OK') ? 1 : 0);
       const bad = r.servers.filter(s => serverStatus(s) !== 'OK');
       this.msg.className = 'q-msg' + (bad.length ? ' err' : '');
-      this.msg.textContent = `${runSummary(r.servers)}${r.cancelled ? ' (stopped)' : ''}   Duration: ${fmtSecs(Date.now() - t0)}`;
+      this.msg.textContent = `${pick.group ? `"${pick.group}": ` : ''}${runSummary(r.servers)}${r.cancelled ? ' (stopped)' : ''}   Duration: ${fmtSecs(Date.now() - t0)}`;
       this.app.setStatus('Finished on several servers.');
     } catch (e) {
       this.msg.className = 'q-msg err';

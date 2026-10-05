@@ -1,18 +1,25 @@
-// "Run on several servers": choosing the servers, confirming changes.
+// "Run on several servers": choosing the servers (or a saved group of them), confirming changes.
 import { h } from '../util.js';
 import { get } from '../api.js';
-import { modal, alertError } from '../dialogs.js';
+import { modal, alertError, promptDlg, confirmDlg } from '../dialogs.js';
 import { isReadOnlyStatement } from '../sqlcheck.js';
-import { pickerItems } from '../multirunlogic.js';
+import { pickerItems, sortGroups, findGroup, groupProblem, saveGroup, removeGroup, groupMembers, groupSummary, matchingGroup } from '../multirunlogic.js';
 
-/** Asks which saved sessions to run on; resolves to { sessions, database, stopOnError } or null. */
-export async function pickServers(app, { database = '' } = {}) {
+async function savedSessions(app) {
   let sessions;
   try { sessions = await get('/sessions'); } catch (e) { app.showError(e); return null; }
   if (!sessions.length) { app.showError(new Error('There are no saved sessions. Add them in the session manager first.')); return null; }
+  return sessions;
+}
+
+const connectedProfiles = app => new Set([...app.conns.values()].map(c => c.profileId));
+
+/** Asks which saved sessions to run on; resolves to { sessions, database, stopOnError, items } or null. */
+export async function pickServers(app, { database = '' } = {}) {
+  const sessions = await savedSessions(app);
+  if (!sessions) return null;
   const last = app.state.multiRun || {};
-  const connected = new Set([...app.conns.values()].map(c => c.profileId));
-  const items = pickerItems(sessions, connected, last.sessions || []);
+  const items = pickerItems(sessions, connectedProfiles(app), last.sessions || []);
 
   const filter = h('input', { class: 'inp mr-filter', placeholder: 'Filter servers', spellcheck: false });
   const count = h('span', { class: 'muted mr-count' });
@@ -28,20 +35,64 @@ export async function pickServers(app, { database = '' } = {}) {
       it.readOnly ? h('span', { class: 'ro-badge' }, 'read-only') : null);
     return { it, cb, row };
   });
+  const chosen = () => rows.filter(r => r.cb.checked).map(r => r.it.id);
+  const db = h('input', { class: 'inp', value: database || last.database || '', placeholder: 'Default database of each session', spellcheck: false });
+  const stop = h('input', { type: 'checkbox', checked: last.stopOnError !== false });
+
+  // Server groups: one click selects a saved set of servers (and its database).
+  const groupsEl = h('div', { class: 'mr-groups' });
+  function renderGroups() {
+    const groups = sortGroups(app.state.serverGroups);
+    const match = matchingGroup(groups, chosen(), sessions);
+    const chips = groups.map(g => {
+      const pick = h('button', { class: 'mr-group' + (g === match ? ' on' : ''), title: `${groupSummary(g, sessions)} – click to select them` }, g.name);
+      pick.addEventListener('click', () => {
+        const ids = new Set(groupMembers(g, sessions).present);
+        filter.value = '';
+        for (const r of rows) { r.row.style.display = ''; r.cb.checked = ids.has(r.it.id) && !r.cb.disabled; }
+        if (g.database) db.value = g.database;
+        updateCount();
+      });
+      const x = h('button', { class: 'mr-group-x', title: `Delete the group "${g.name}"`, 'aria-label': `Delete the group ${g.name}`, html: '×' });
+      x.addEventListener('click', async () => {
+        if (!(await confirmDlg(`Delete the server group "${g.name}"? The sessions stay as they are.`, { ok: 'Delete', danger: true }))) return;
+        app.state.serverGroups = removeGroup(app.state.serverGroups, g.name);
+        app.saveStateSoon();
+        renderGroups();
+      });
+      return h('span', { class: 'mr-chip' }, pick, x);
+    });
+    const save = h('button', { class: 'btn mr-save-group', disabled: !chosen().length, title: 'Save the selected servers (and the database below) as a group' }, 'Save as group…');
+    save.addEventListener('click', saveAsGroup);
+    groupsEl.replaceChildren(h('span', { class: 'muted' }, groups.length ? 'Groups:' : 'No groups yet.'), ...chips, save);
+  }
+  async function saveAsGroup() {
+    const ids = chosen();
+    const suggested = matchingGroup(app.state.serverGroups, ids, sessions)?.name || '';
+    const name = await promptDlg('Save as server group', `Name for these ${ids.length} server${ids.length === 1 ? '' : 's'}:`, suggested, { placeholder: 'e.g. EU shards' });
+    if (name == null) return;
+    const problem = groupProblem(name, ids);
+    if (problem) return alertError(problem);
+    const existing = findGroup(app.state.serverGroups, name);
+    if (existing && !(await confirmDlg(`Replace the servers of the group "${existing.name}"?`, { ok: 'Replace' }))) return;
+    app.state.serverGroups = saveGroup(app.state.serverGroups, { name, sessions: ids, database: db.value });
+    app.saveStateSoon();
+    renderGroups();
+  }
+
   function updateCount() {
-    const n = rows.filter(r => r.cb.checked).length;
-    count.textContent = `${n} selected`;
+    count.textContent = `${chosen().length} selected`;
+    renderGroups();
   }
   filter.addEventListener('input', () => {
     const q = filter.value.trim().toLowerCase();
     for (const r of rows) r.row.style.display = !q || (r.it.name + ' ' + r.it.host).toLowerCase().includes(q) ? '' : 'none';
   });
   const setAll = on => { for (const r of rows) if (r.row.style.display !== 'none' && !r.cb.disabled) r.cb.checked = on; updateCount(); };
-  const db = h('input', { class: 'inp', value: database || last.database || '', placeholder: 'Default database of each session', spellcheck: false });
-  const stop = h('input', { type: 'checkbox', checked: last.stopOnError !== false });
   updateCount();
 
   const body = h('div', { class: 'form mr-dialog' },
+    groupsEl,
     h('div', { class: 'mr-top' }, filter,
       h('button', { class: 'btn', onclick: () => setAll(true) }, 'All'),
       h('button', { class: 'btn', onclick: () => setAll(false) }, 'None'), count),
@@ -57,9 +108,9 @@ export async function pickServers(app, { database = '' } = {}) {
     onOpen: () => filter.focus(),
     buttons: [
       { label: 'Run', primary: true, onClick: () => {
-        const chosen = rows.filter(r => r.cb.checked).map(r => r.it.id);
-        if (!chosen.length) { alertError('Choose at least one server.'); return false; }
-        return { sessions: chosen, database: db.value.trim(), stopOnError: stop.checked };
+        const ids = chosen();
+        if (!ids.length) { alertError('Choose at least one server.'); return false; }
+        return { sessions: ids, database: db.value.trim(), stopOnError: stop.checked };
       } },
       { label: 'Cancel', value: null },
     ],
@@ -68,6 +119,18 @@ export async function pickServers(app, { database = '' } = {}) {
   app.state.multiRun = res;
   app.saveStateSoon();
   return { ...res, items: items.filter(it => res.sessions.includes(it.id)) };
+}
+
+/** The servers of a saved group, without asking; resolves like pickServers, or null. */
+export async function groupTargets(app, name) {
+  const group = findGroup(app.state.serverGroups, name);
+  if (!group) { app.showError(new Error(`The server group "${name}" no longer exists.`)); return null; }
+  const sessions = await savedSessions(app);
+  if (!sessions) return null;
+  const { present } = groupMembers(group, sessions);
+  if (!present.length) { app.showError(new Error(`None of the servers of the group "${group.name}" exist any more.`)); return null; }
+  const items = pickerItems(sessions, connectedProfiles(app)).filter(it => present.includes(it.id));
+  return { sessions: present, database: group.database || '', stopOnError: app.state.multiRun?.stopOnError !== false, items, group: group.name };
 }
 
 /** Confirms statements that change data; production servers are named. */

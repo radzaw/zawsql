@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { combineResults, summarySet, serverStatus, runSummary, pickerItems } from '../../src/ZawSQL/wwwroot/js/multirunlogic.js';
+import { combineResults, summarySet, serverStatus, runSummary, pickerItems, saveGroup, removeGroup, findGroup, sortGroups, groupProblem, groupMembers, groupSummary, matchingGroup } from '../../src/ZawSQL/wwwroot/js/multirunlogic.js';
 
 const col = (name, extra = {}) => ({ name, type: 'INT', kind: 'number', ...extra });
 const set = (statement, cols, rows, extra = {}) => ({ statement, sql: `q${statement}`, columns: cols.map(c => col(c)), rows, truncated: false, ...extra });
@@ -72,4 +72,33 @@ test('multi-run: picker lists sessions by name, marks connected ones and remembe
   assert.equal(items[2].needsPassword, false); // connected: the typed password is used
   assert.equal(items[2].connected, true);
   assert.equal(items[1].production, true);
+});
+
+test('server groups: saved by name (ignoring case), replaced, removed and kept in name order', () => {
+  let groups = saveGroup([], { name: ' EU shards ', sessions: ['a', 'b', 'a'], database: ' shop ' });
+  assert.deepEqual(groups, [{ name: 'EU shards', sessions: ['a', 'b'], database: 'shop' }]);
+  groups = saveGroup(groups, { name: 'all prod', sessions: ['c'] });
+  assert.deepEqual(groups.map(g => g.name), ['all prod', 'EU shards']);
+  groups = saveGroup(groups, { name: 'eu SHARDS', sessions: ['b'] }); // same name: replaces
+  assert.equal(groups.length, 2);
+  assert.deepEqual(findGroup(groups, 'EU Shards'), { name: 'eu SHARDS', sessions: ['b'], database: '' });
+  assert.deepEqual(removeGroup(groups, 'ALL PROD').map(g => g.name), ['eu SHARDS']);
+  assert.deepEqual(sortGroups(undefined), []);
+  assert.equal(findGroup(undefined, 'x'), null);
+  assert.equal(groupProblem('  ', ['a']), 'Give the group a name.');
+  assert.equal(groupProblem('x'.repeat(61), ['a']), 'Keep the name under 60 characters.');
+  assert.equal(groupProblem('ok', []), 'Choose at least one server for the group.');
+  assert.equal(groupProblem('ok', ['a']), null);
+});
+
+test('server groups: members that were deleted are skipped and counted; the selection finds its group', () => {
+  const sessions = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+  const eu = { name: 'EU', sessions: ['a', 'gone', 'b'], database: 'shop' };
+  const one = { name: 'One', sessions: ['c'], database: '' };
+  assert.deepEqual(groupMembers(eu, sessions), { present: ['a', 'b'], missing: 1 });
+  assert.equal(groupSummary(eu, sessions), '2 servers, 1 deleted · shop');
+  assert.equal(groupSummary(one, sessions), '1 server');
+  assert.equal(matchingGroup([one, eu], ['b', 'a'], sessions), eu); // order doesn't matter, deleted members don't count
+  assert.equal(matchingGroup([one, eu], ['a'], sessions), null);
+  assert.equal(matchingGroup([one, eu], [], sessions), null);
 });

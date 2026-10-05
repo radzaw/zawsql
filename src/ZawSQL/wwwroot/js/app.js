@@ -20,6 +20,7 @@ import { LibraryStore, editSnippetDialog } from './views/library.js';
 import { snippetVars } from './library.js';
 import { formatSql } from './sqlformat.js';
 import { DEFAULT_SLOW_MS, slowThreshold } from './logslow.js';
+import { sortGroups } from './multirunlogic.js';
 import { sessionManager, confirmHostKey, exportDumpDialog, runSqlFile, createDatabaseDialog, preferencesDialog, aboutDialog } from './views/tools.js';
 
 const TYPE_LABEL = { table: 'Table', view: 'View', procedure: 'Procedure', function: 'Function', trigger: 'Trigger', event: 'Event' };
@@ -303,6 +304,8 @@ class App {
         { label: 'Execute selection', icon: 'playsel', shortcut: 'Ctrl+F9', disabled: !s.sid, onClick: () => this.queryForRun()?.run('selection') },
         { label: 'Execute current query', icon: 'playline', shortcut: 'Ctrl+Shift+F9', disabled: !s.sid, onClick: () => this.queryForRun()?.run('current') },
         { label: 'Run on several servers…', icon: 'server', shortcut: 'Ctrl+Alt+F9', onClick: () => this.queryForRun()?.runMulti() },
+        { label: 'Run on group', disabled: !this.state.serverGroups?.length, title: this.state.serverGroups?.length ? null : 'Save a group in the "Run on several servers" dialog first.',
+          submenu: sortGroups(this.state.serverGroups).map(g => ({ label: g.name, onClick: () => this.queryForRun()?.runMulti({ group: g.name }) })) },
         { label: 'Stop', icon: 'stop', disabled: !s.sid, onClick: () => this.activeQuery()?.stop() },
         '-',
         { label: 'Query history…', icon: 'history', onClick: () => this.queryForRun()?.showHistory() },

@@ -85,3 +85,59 @@ export function pickerItems(sessions, connectedProfiles, lastChosen = []) {
     }))
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
 }
+
+// ---------- server groups: saved sets of sessions to run on ----------
+
+const sameName = (a, b) => a.trim().toLocaleLowerCase() === b.trim().toLocaleLowerCase();
+
+/** Groups in name order. */
+export function sortGroups(groups) {
+  return [...(groups || [])].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+}
+
+export function findGroup(groups, name) {
+  return (groups || []).find(g => sameName(g.name, name)) || null;
+}
+
+/** Problems with a new group's name and members, or null. */
+export function groupProblem(name, sessions) {
+  if (!name || !name.trim()) return 'Give the group a name.';
+  if (name.trim().length > 60) return 'Keep the name under 60 characters.';
+  if (!sessions?.length) return 'Choose at least one server for the group.';
+  return null;
+}
+
+/** Saves a group (replacing one with the same name, ignoring case); returns the new list. */
+export function saveGroup(groups, { name, sessions, database = '' }) {
+  const g = { name: name.trim(), sessions: [...new Set(sessions)], database: (database || '').trim() };
+  return sortGroups([...(groups || []).filter(x => !sameName(x.name, g.name)), g]);
+}
+
+export function removeGroup(groups, name) {
+  return (groups || []).filter(g => !sameName(g.name, name));
+}
+
+/** A group's members that still exist as saved sessions, and how many are gone. */
+export function groupMembers(group, sessions) {
+  const ids = new Set((sessions || []).map(s => s.id));
+  const present = group.sessions.filter(id => ids.has(id));
+  return { present, missing: group.sessions.length - present.length };
+}
+
+/** "3 servers", "2 servers, 1 deleted" – and the database when the group has one. */
+export function groupSummary(group, sessions) {
+  const { present, missing } = groupMembers(group, sessions);
+  let s = `${present.length} server${present.length === 1 ? '' : 's'}`;
+  if (missing) s += `, ${missing} deleted`;
+  if (group.database) s += ` · ${group.database}`;
+  return s;
+}
+
+/** The group whose (existing) members are exactly the selection, if any. */
+export function matchingGroup(groups, selected, sessions) {
+  const sel = new Set(selected);
+  return (groups || []).find(g => {
+    const { present } = groupMembers(g, sessions);
+    return present.length === sel.size && present.every(id => sel.has(id));
+  }) || null;
+}

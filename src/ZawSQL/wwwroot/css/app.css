@@ -936,6 +936,7 @@ select.cell-inp { padding: 0 2px; }
 .mr-item .mr-host { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 .mr-tag { flex: none; padding: 0 5px; border-radius: 3px; font-size: 10px; line-height: 15px; background: var(--sel); color: var(--text); }
 .mr-targets { margin-top: 6px; }
+.mr-dialog .row { display: flex; align-items: center; gap: 8px; }
 .res-tab.res-summary { font-weight: 600; }
 
 /* full text of a grid cell that doesn't fit, on hover */
@@ -964,3 +965,16 @@ select.cell-inp { padding: 0 2px; }
 .log-tg.icon { width: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
 .log-tg.icon svg { width: 14px; height: 14px; }
 .log-count { white-space: nowrap; padding: 0 4px; font-variant-numeric: tabular-nums; }
+
+/* server groups in the "Run on several servers" dialog */
+.mr-groups { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-bottom: 6px; }
+.mr-chip { display: inline-flex; align-items: stretch; border: 1px solid var(--border-light); border-radius: 12px; overflow: hidden; }
+.mr-chip:hover { border-color: var(--hover-border); }
+.mr-group, .mr-group-x { border: 0; background: transparent; color: var(--text); font: inherit; cursor: pointer; }
+.mr-group { padding: 1px 4px 1px 10px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mr-group-x { padding: 0 8px 0 4px; color: var(--muted); }
+.mr-group:hover, .mr-group-x:hover { background: var(--hover); }
+.mr-group-x:hover { color: var(--err); }
+.mr-chip:has(.mr-group.on) { background: var(--sel); border-color: var(--sel-border); }
+.mr-group.on { font-weight: 600; }
+.mr-save-group { margin-left: auto; }
