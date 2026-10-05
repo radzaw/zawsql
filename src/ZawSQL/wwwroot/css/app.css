@@ -887,3 +887,9 @@ select.cell-inp { padding: 0 2px; }
 .tx-info.tx-open { color: color-mix(in srgb, var(--status-warning) 65%, var(--text)); font-weight: 600; }
 .tx-info.tx-long { color: var(--status-critical); font-weight: 600; }
 .tab.tx-open .tab-title::after { content: '●'; color: var(--status-warning); margin-left: 5px; font-size: 10px; vertical-align: 1px; }
+
+/* subpartitions in the partition editor */
+
+.part-problems { display: flex; flex-direction: column; gap: 3px; color: var(--err); font-size: 12px; }
+.part-problems > div { display: flex; gap: 6px; align-items: center; }
+.part-problems .ic { width: 13px; height: 13px; display: block; flex: none; }

@@ -5,7 +5,7 @@ import { icon } from '../icons.js';
 import { get } from '../api.js';
 import { SqlEditor } from '../editor.js';
 import { confirmDlg } from '../dialogs.js';
-import { buildPartModel, partitionClause, partitionAlter, renderPartitions, partitionCount } from './partitions.js';
+import { buildPartModel, partitionClause, partitionAlter, renderPartitions, partitionCount, partitionProblems } from './partitions.js';
 
 const TYPES = ['int', 'int unsigned', 'bigint', 'bigint unsigned', 'tinyint', 'smallint', 'mediumint', 'decimal(10,2)', 'float', 'double', 'bit(1)',
   'varchar(255)', 'char(36)', 'tinytext', 'text', 'mediumtext', 'longtext', 'json', "enum('a','b')", "set('a','b')",
@@ -581,6 +581,9 @@ export class TableView {
   async save() {
     const m = this.m;
     if (m.code) return this.saveCode();
+    // The server would refuse these (or worse, create something else); say what to fix instead.
+    const problems = partitionProblems(m.part);
+    if (problems.length) return this.app.showError(new Error(`Partitions: ${problems.join(' ')}`));
     const stmts = m.creating ? [this.genCreate()] : this.genAlter();
     if (!stmts.length) return;
     if (!(await this.app.confirmChanges(m.sid, { action: m.creating ? `Create table ${m.opts.name}` : `Alter table ${m.origOpts.name}`, statements: stmts }))) return;

@@ -27,7 +27,9 @@ test.beforeAll(async ({ browser }) => {
     'CREATE TABLE customers (id INT PRIMARY KEY, name VARCHAR(50) NOT NULL, status ENUM(\'active\',\'blocked\') NOT NULL DEFAULT \'active\')',
     "INSERT INTO customers VALUES (1, 'Alice', 'active'), (2, 'Bob', 'blocked'), (3, 'Carol', 'active')",
     'CREATE TABLE logs (msg VARCHAR(20))',
-    "INSERT INTO logs VALUES ('a'), ('b')");
+    "INSERT INTO logs VALUES ('a'), ('b')",
+    'CREATE TABLE sp_sales (id INT NOT NULL, y INT NOT NULL, PRIMARY KEY (id, y)) PARTITION BY RANGE (y) (PARTITION p0 VALUES LESS THAN (2000), PARTITION pmax VALUES LESS THAN MAXVALUE)',
+    'INSERT INTO sp_sales VALUES (1, 1999), (2, 2005), (3, 2010)');
 
   page = await browser.newPage();
   page.on('pageerror', e => pageErrors.push(e.message));
@@ -352,6 +354,54 @@ test('table editor generates ALTER code', async () => {
   await expect(tab(/^Table/)).not.toHaveClass(/modified/);
 });
 
+test('partition editor adds, names and checks subpartitions', async () => {
+  const subNames = () => scalar(`SELECT GROUP_CONCAT(SUBPARTITION_NAME ORDER BY PARTITION_ORDINAL_POSITION, SUBPARTITION_ORDINAL_POSITION) FROM information_schema.PARTITIONS WHERE TABLE_SCHEMA = '${schema}' AND TABLE_NAME = 'sp_sales'`);
+  const view = page.locator('.table-view');
+  const openPartitions = async () => {
+    await view.locator('.tv-top .subtab', { hasText: 'Partitions' }).click();
+    await expect(view.locator('.part-editor')).toBeVisible();
+  };
+  const save = async () => {
+    await view.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(tab(/^Table/)).not.toHaveClass(/modified/);
+  };
+  await treeNode('sp_sales').click();
+  await tab(/^Table/).click();
+  await openPartitions();
+  const sub = view.locator('.part-editor');
+
+  // Subpartition the RANGE partitions by HASH; the server names them.
+  await sub.locator('.part-sub-method select').selectOption('HASH');
+  await sub.locator('.part-sub-expr input').fill('id');
+  await sub.locator('.part-sub-count input').fill('2');
+  await expect(view.locator('.part-editor .edit-table tbody tr').first()).toContainText('p0sp0, p0sp1');
+  await view.locator('.tv-top .subtab', { hasText: 'ALTER code' }).click();
+  await expect(view.locator('.tv-pane')).toContainText('SUBPARTITION BY HASH (id)\nSUBPARTITIONS 2');
+  await save();
+  expect(await subNames()).toBe('p0sp0,p0sp1,pmaxsp0,pmaxsp1');
+  expect(await scalar('SELECT COUNT(*) FROM sp_sales')).toBe('3'); // nothing lost
+
+  // Name them: the names the server gave are offered, then changed for p0.
+  await openPartitions();
+  await sub.locator('.part-sub-named input').check();
+  const p0subs = view.locator('.part-editor .edit-table tbody tr').first().locator('td').nth(4).locator('input');
+  await expect(p0subs).toHaveValue('p0sp0, p0sp1');
+  await p0subs.fill('old_a, old_b');
+  await save();
+  expect(await subNames()).toBe('old_a,old_b,pmaxsp0,pmaxsp1');
+
+  // What the server would refuse is caught first: a partition with fewer subpartitions.
+  await openPartitions();
+  await p0subs.fill('old_a');
+  await expect(view.locator('.part-problems')).toHaveText(/Every partition needs the same number of subpartitions/);
+  await view.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.locator('.modal')).toContainText('Partitions: Every partition needs the same number of subpartitions.');
+  await page.keyboard.press('Escape');
+  expect(await subNames()).toBe('old_a,old_b,pmaxsp0,pmaxsp1');
+  await view.getByRole('button', { name: 'Discard', exact: true }).click();
+  await btn('OK').click();
+});
+
 test('runs table maintenance from the tree context menu', async () => {
   await treeNode('customers').click({ button: 'right' });
   await page.locator('.ctx-root .menu-item', { hasText: 'Maintenance' }).click();
@@ -363,8 +413,8 @@ test('runs table maintenance from the tree context menu', async () => {
   await dlg.locator('.mt-op', { hasText: 'Check' }).first().locator('input').check();
   await dlg.locator('.mt-tables').getByRole('button', { name: 'All', exact: true }).click();
   await dlg.getByRole('button', { name: 'Execute', exact: true }).click();
-  await expect(dlg.locator('.mt-status')).toContainText('2 of 2 table(s)');
-  await expect(dlg.locator('.grid .gr')).toHaveCount(2);
+  await expect(dlg.locator('.mt-status')).toContainText('3 of 3 table(s)'); // customers, logs, sp_sales
+  await expect(dlg.locator('.grid .gr')).toHaveCount(3);
   await expect(dlg.locator('.grid')).toContainText('OK');
   await btn('Close').click();
   await expect(dlg).toHaveCount(0);

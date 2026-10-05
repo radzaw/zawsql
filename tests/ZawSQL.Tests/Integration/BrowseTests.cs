@@ -94,6 +94,43 @@ public class BrowseTests(TestDatabase t)
     }
 
     [DbFact]
+    public async Task Subpartitions_are_reported_with_names_and_comments()
+    {
+        var auto = "sub_auto_" + t.Suffix;
+        var named = "sub_named_" + t.Suffix;
+        await t.ExecRootAsync($"""
+            CREATE TABLE `{auto}` (id INT NOT NULL, y INT NOT NULL, PRIMARY KEY (id, y))
+            PARTITION BY RANGE (y) SUBPARTITION BY HASH (id) SUBPARTITIONS 2 (
+              PARTITION p0 VALUES LESS THAN (2000) COMMENT 'old', PARTITION p1 VALUES LESS THAN MAXVALUE)
+            """);
+        await t.ExecRootAsync($"""
+            CREATE TABLE `{named}` (id INT NOT NULL, y INT NOT NULL, PRIMARY KEY (id, y))
+            PARTITION BY LIST (y) SUBPARTITION BY KEY (id) (
+              PARTITION p0 VALUES IN (1, 2) COMMENT 'pc' (SUBPARTITION s0 COMMENT 'sc0', SUBPARTITION s1),
+              PARTITION p1 VALUES IN (3) (SUBPARTITION s2, SUBPARTITION s3))
+            """);
+
+        var a = (await t.App.GetAsync($"/s/{t.Sid}/table?db={t.Db}&table={auto}")).Expect().GetProperty("partitions");
+        Assert.Equal("HASH", a.GetProperty("subMethod").GetString());
+        Assert.Equal("`id`", a.GetProperty("subExpression").GetString());
+        var ap = a.GetProperty("partitions").EnumerateArray().ToList();
+        // The server names them <partition>sp<n>; a subpartition without a comment shows the partition's.
+        Assert.Equal(["p0sp0", "p0sp1"], ap[0].GetProperty("subNames").EnumerateArray().Select(x => x.GetString()));
+        Assert.Equal(["old", "old"], ap[0].GetProperty("subComments").EnumerateArray().Select(x => x.GetString()));
+        Assert.Equal(2, ap[1].GetProperty("subpartitions").GetInt32());
+
+        var n = (await t.App.GetAsync($"/s/{t.Sid}/table?db={t.Db}&table={named}")).Expect().GetProperty("partitions");
+        Assert.Equal("KEY", n.GetProperty("subMethod").GetString());
+        var np = n.GetProperty("partitions").EnumerateArray().ToList();
+        Assert.Equal(["s0", "s1"], np[0].GetProperty("subNames").EnumerateArray().Select(x => x.GetString()));
+        Assert.Equal(["sc0", "pc"], np[0].GetProperty("subComments").EnumerateArray().Select(x => x.GetString()));
+        Assert.Equal(["s2", "s3"], np[1].GetProperty("subNames").EnumerateArray().Select(x => x.GetString()));
+        // Plain partitions have no subpartitions.
+        var plain = (await t.App.GetAsync($"/s/{t.Sid}/table?db={t.Db}&table=sales")).Expect().GetProperty("partitions");
+        Assert.Empty(plain.GetProperty("partitions")[0].GetProperty("subNames").EnumerateArray());
+    }
+
+    [DbFact]
     public async Task Show_create_and_host_information()
     {
         var code = (await t.App.GetAsync($"/s/{t.Sid}/create?db={t.Db}&type=procedure&name=top_customers")).Expect().GetProperty("code").GetString();

@@ -49,6 +49,10 @@ public sealed class PartitionMeta
     public long? Rows { get; set; }
     public long? Size { get; set; }
     public int Subpartitions { get; set; }
+    /// <summary>Subpartition names in order (empty when not subpartitioned); the server names them "&lt;partition&gt;sp&lt;n&gt;" unless told otherwise.</summary>
+    public List<string> SubNames { get; set; } = [];
+    /// <summary>Each subpartition's comment; one without its own comment reports the partition's.</summary>
+    public List<string> SubComments { get; set; } = [];
 }
 
 public sealed class PartitioningMeta
@@ -196,7 +200,12 @@ public static class TableMeta
             }
             if (long.TryParse(r["rows"], out var n)) p.Rows = (p.Rows ?? 0) + n;
             if (long.TryParse(r["size"], out var s)) p.Size = (p.Size ?? 0) + s;
-            if (r["sub"] != null) p.Subpartitions++;
+            if (r["sub"] != null)
+            {
+                p.Subpartitions++;
+                p.SubNames.Add(r["sub"]!);
+                p.SubComments.Add(r["comment"] ?? "");
+            }
         }
         return meta;
     }
