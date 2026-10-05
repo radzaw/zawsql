@@ -16,6 +16,22 @@ public class EditAndQueryTests(TestDatabase t)
     }
 
     [DbFact]
+    public async Task Each_logged_statement_has_the_time_it_was_sent()
+    {
+        var before = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var r = await t.App.PostAsync($"/s/{t.Sid}/exec", new { statements = new[] { "SELECT 1", "DO SLEEP(0.3)", "SELECT 2" }, database = t.Db });
+        r.Expect();
+        var after = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        Assert.Equal(r.Log.Length, r.LogTimes.Length);
+        var at = (string sql) => r.LogTimes[Array.IndexOf(r.Log, sql)];
+        Assert.All(r.LogTimes, ms => Assert.InRange(ms, before - 5, after + 5));
+        Assert.True(r.LogTimes.Zip(r.LogTimes.Skip(1)).All(p => p.First <= p.Second), "times in order");
+        // Logged as each statement is sent: SELECT 2 comes after the sleep, not at the end of the request.
+        Assert.InRange(at("SELECT 2") - at("DO SLEEP(0.3)"), 250, 5000);
+        Assert.InRange(at("DO SLEEP(0.3)") - at("SELECT 1"), 0, 250);
+    }
+
+    [DbFact]
     public async Task Update_insert_and_delete_rows()
     {
         await t.ExecRootAsync("INSERT INTO customers (id, name) VALUES (100, 'Edit me')");

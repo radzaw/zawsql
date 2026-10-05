@@ -21,32 +21,33 @@ public static class Api
 
     const string ReadOnlyMessage = "This session is in read-only mode; changes are not allowed.";
 
-    sealed record Response(bool Ok, object? Data, string? Error, int? Code, List<string> Log);
+    /// <summary>LogTimes: when each Log line was logged (Unix ms), shown as timestamps in the SQL log.</summary>
+    sealed record Response(bool Ok, object? Data, string? Error, int? Code, List<string> Log, List<long>? LogTimes = null);
 
     static async Task<IResult> Run(Func<SqlLog, Task<object?>> body)
     {
         var log = new SqlLog();
         try
         {
-            return Results.Json(new Response(true, await body(log), null, null, log.Items));
+            return Results.Json(new Response(true, await body(log), null, null, log.Items, log.Times));
         }
         catch (MySqlException ex)
         {
             log.Add($"/* SQL Error ({ex.Number}): {ex.Message} */");
-            return Results.Json(new Response(false, null, ex.Message, ex.Number, log.Items));
+            return Results.Json(new Response(false, null, ex.Message, ex.Number, log.Items, log.Times));
         }
         catch (SshHostKeyUnknownException ex)
         {
             log.Add($"/* {ex.Message} Fingerprint: {ex.Fingerprint} */");
-            return Results.Json(new Response(false, new { host = ex.Host, port = ex.Port, fingerprint = ex.Fingerprint }, ex.Message, SshHostKeyUnknown, log.Items));
+            return Results.Json(new Response(false, new { host = ex.Host, port = ex.Port, fingerprint = ex.Fingerprint }, ex.Message, SshHostKeyUnknown, log.Items, log.Times));
         }
         catch (OperationCanceledException)
         {
-            return Results.Json(new Response(false, null, "The operation was cancelled.", null, log.Items));
+            return Results.Json(new Response(false, null, "The operation was cancelled.", null, log.Items, log.Times));
         }
         catch (Exception ex)
         {
-            return Results.Json(new Response(false, null, ex.Message, null, log.Items));
+            return Results.Json(new Response(false, null, ex.Message, null, log.Items, log.Times));
         }
     }
 

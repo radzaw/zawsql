@@ -22,7 +22,7 @@ import { formatSql } from './sqlformat.js';
 import { sessionManager, confirmHostKey, exportDumpDialog, runSqlFile, createDatabaseDialog, preferencesDialog, aboutDialog } from './views/tools.js';
 
 const TYPE_LABEL = { table: 'Table', view: 'View', procedure: 'Procedure', function: 'Function', trigger: 'Trigger', event: 'Event' };
-const DEFAULT_PREFS = { rowsPerPage: 1000, maxResultRows: 10000, theme: 'system', editorFontSize: 13, confirmNoWhere: true, formatKeywordCase: 'upper', formatIndent: '2', checkUpdates: true, showWhatsNew: true, txDefault: 'auto' };
+const DEFAULT_PREFS = { rowsPerPage: 1000, maxResultRows: 10000, theme: 'system', editorFontSize: 13, confirmNoWhere: true, formatKeywordCase: 'upper', formatIndent: '2', checkUpdates: true, showWhatsNew: true, txDefault: 'auto', logTimestamps: true };
 
 // ---------------------------------------------------------------- tabs
 
@@ -136,8 +136,11 @@ class App {
     this.applyPrefs();
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => this.applyPrefs());
 
-    this.log = new LogPanel(document.getElementById('log'));
-    setLogSink(lines => this.log.add(lines));
+    this.log = new LogPanel(document.getElementById('log'), {
+      timestamps: () => this.prefs.logTimestamps !== false,
+      setTimestamps: on => { this.prefs.logTimestamps = on; this.saveStateSoon(); },
+    });
+    setLogSink((lines, times) => this.log.add(lines, '', times));
     try { this.version = await get('/version', null, { quiet: true }); } catch { this.version = null; }
     this.library = new LibraryStore();
     await this.library.load();

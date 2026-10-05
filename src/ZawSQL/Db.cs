@@ -11,9 +11,15 @@ public sealed class ApiException(string message) : Exception(message);
 public sealed class SqlLog
 {
     public List<string> Items { get; } = [];
+    /// <summary>When each item was logged (Unix time in milliseconds), for the timestamps in the UI's SQL log.</summary>
+    public List<long> Times { get; } = [];
     public void Add(string sql)
     {
-        lock (Items) Items.Add(sql);
+        lock (Items)
+        {
+            Items.Add(sql);
+            Times.Add(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        }
     }
 }
 

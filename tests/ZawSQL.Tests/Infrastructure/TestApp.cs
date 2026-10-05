@@ -7,6 +7,9 @@ namespace ZawSQL.Tests.Infrastructure;
 /// <summary>Response envelope of the ZawSQL API.</summary>
 public sealed record ApiResult(bool Ok, JsonElement Data, string? Error, int? Code, string[] Log)
 {
+    /// <summary>When each Log line was logged (Unix ms).</summary>
+    public long[] LogTimes { get; init; } = [];
+
     public JsonElement Expect()
     {
         Assert.True(Ok, $"API call failed: {Error}");
@@ -53,7 +56,10 @@ public sealed class TestApp : IAsyncDisposable
             json.GetProperty("data").Clone(),
             json.TryGetProperty("error", out var e) && e.ValueKind == JsonValueKind.String ? e.GetString() : null,
             json.TryGetProperty("code", out var c) && c.ValueKind == JsonValueKind.Number ? c.GetInt32() : null,
-            json.GetProperty("log").EnumerateArray().Select(x => x.GetString() ?? "").ToArray());
+            json.GetProperty("log").EnumerateArray().Select(x => x.GetString() ?? "").ToArray())
+        {
+            LogTimes = json.TryGetProperty("logTimes", out var lt) && lt.ValueKind == JsonValueKind.Array ? lt.EnumerateArray().Select(x => x.GetInt64()).ToArray() : [],
+        };
     }
 
     public Task<ApiResult> GetAsync(string path) => CallAsync(HttpMethod.Get, path);

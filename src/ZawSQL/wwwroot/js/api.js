@@ -48,7 +48,7 @@ export async function api(method, path, body, { signal, quiet } = {}) {
   if (res.status === 401) throw new ApiError('Not authorized. Restart ZawSQL to open a new window.');
   let j;
   try { j = await res.json(); } catch { throw new ApiError(`Unexpected response from the backend (HTTP ${res.status}).`); }
-  if (j.log?.length && !quiet) logSink(j.log);
+  if (j.log?.length && !quiet) logSink(j.log, j.logTimes);
   if (!j.ok) throw new ApiError(j.error || 'Unknown error', j.code, j.data);
   return j.data;
 }

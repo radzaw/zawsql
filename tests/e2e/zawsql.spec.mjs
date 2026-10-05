@@ -144,6 +144,18 @@ test('runs queries with F9 and edits the result in place', async () => {
   await expect.poll(() => scalar('SELECT name FROM customers WHERE id = 3')).toBe('Caroline');
 });
 
+test('the SQL log shows a timestamp with milliseconds on every line, and can hide them', async () => {
+  const log = page.locator('#log');
+  const last = log.locator('.log-line', { hasText: 'SELECT id, name FROM customers ORDER BY id' }).last();
+  await expect(last.locator('.log-ts')).toHaveText(/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3}$/);
+  await log.click({ button: 'right' });
+  await page.locator('.ctx-root .menu-item', { hasText: 'Show timestamps' }).click();
+  await expect(last.locator('.log-ts')).toBeHidden();
+  await log.click({ button: 'right' });
+  await page.locator('.ctx-root .menu-item', { hasText: 'Show timestamps' }).click();
+  await expect(last.locator('.log-ts')).toBeVisible();
+});
+
 test('asks before UPDATE/DELETE without WHERE and runs nothing on cancel', async () => {
   const ta = page.locator('.query-view .sqled-ta').first();
   await ta.fill('DELETE FROM logs');

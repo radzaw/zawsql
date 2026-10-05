@@ -153,3 +153,10 @@ export function splitTopLevel(s, sep = ',') {
   if (cur.trim()) out.push(cur);
   return out.map(x => x.trim()).filter(Boolean);
 }
+
+/** A log timestamp in local time with milliseconds: "2026-10-05 14:03:21.457". */
+export function fmtLogTime(ms) {
+  const d = new Date(ms);
+  const p = (n, w = 2) => String(n).padStart(w, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
+}
