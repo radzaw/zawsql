@@ -406,7 +406,7 @@ export function attachLibraryPanel(app, view, body) {
   const panel = new LibraryPanel(app, view);
   const split = h('div', { class: 'splitter-v lib-split' });
   const host = h('div', { class: 'lib-host' }, panel.el);
-  host.style.width = (app.state.layout?.libraryWidth || 270) + 'px';
+  host.style.width = (app.state.layout?.libraryWidth || 310) + 'px';
   makeSplitter(split, {
     axis: 'x',
     get: () => -host.offsetWidth,
