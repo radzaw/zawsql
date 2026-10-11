@@ -7,6 +7,7 @@ import { contextMenu } from '../dialogs.js';
 import { exportGridDialog, rowsToSql } from './tools.js';
 import { RowEditor } from './editing.js';
 import { whereKey, rememberWhere, forgetWhere, whereLabel } from '../wherehistory.js';
+import { rememberView, viewFor, withExistingSort } from '../dataviewstate.js';
 
 export class DataView {
   constructor(app) {
@@ -85,11 +86,14 @@ export class DataView {
     if (k !== this.key) {
       this.key = k;
       this.target = { sid: s.sid, db: s.db, table: s.obj.name };
-      this.sort = null;
-      this.where = '';
+      // Back on a table: the sorting and filter it had last time.
+      const v = viewFor(this.app.state.dataViews, this.viewKey);
+      this.sort = v.sort;
+      this.where = v.where;
       this.showAll = false;
-      this.whereInput.value = '';
-      this.search.value = '';
+      this.whereInput.value = v.where;
+      this.search.value = v.search;
+      if (v.where) this.filterBox.style.display = '';
       this.cols = [];
       this.meta = null;
       this.load();
@@ -125,10 +129,13 @@ export class DataView {
       this.rows = append ? this.rows.concat(r.rows) : r.rows;
       this.hasMore = limit > 0 && r.rows.length === limit;
       this.grid.o.editable = this.editor.enabled();
+      this.sort = withExistingSort({ sort: this.sort }, this.cols.map(c => c.name)).sort;
       const sc = this.sort ? this.cols.findIndex(c => c.name === this.sort.col) : -1;
       this.grid.sort = sc >= 0 ? { c: sc, dir: this.sort.dir } : null;
       this.grid.setData(this.cols, this.rows, { keepWidths: sameCols, keepPos: append });
       this.updateInfo();
+      // Only views that loaded are remembered, so a broken filter isn't brought back next time.
+      if (!append) this.rememberView();
       // The filter worked: offer it again next time.
       if (this.recordWhere && this.recordWhere === this.where) this.rememberFilter(this.where);
       this.recordWhere = null;
@@ -188,9 +195,20 @@ export class DataView {
     this.setFilter(this.cols.map(c => `${qi(c.name)} LIKE ${like}`).join(' OR '), { record: false });
   }
 
-  // ---------- filter history ----------
+  // ---------- remembered sorting and filter, filter history ----------
 
-  get whereHistoryKey() { return this.target ? whereKey(this.target.db, this.target.table) : null; }
+  get viewKey() { return this.target ? whereKey(this.target.db, this.target.table) : null; }
+  get whereHistoryKey() { return this.viewKey; }
+
+  rememberView() {
+    const key = this.viewKey;
+    if (!key) return;
+    const prev = this.app.state.dataViews;
+    const next = rememberView(prev, key, { sort: this.sort, where: this.where, search: this.search.value });
+    if (JSON.stringify(next) === JSON.stringify(prev ?? {})) return;
+    this.app.state.dataViews = next;
+    this.app.saveStateSoon();
+  }
 
   rememberFilter(where) {
     this.app.state.whereHistory = rememberWhere(this.app.state.whereHistory, this.whereHistoryKey, where);
