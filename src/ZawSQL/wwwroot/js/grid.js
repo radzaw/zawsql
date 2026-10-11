@@ -24,7 +24,7 @@ function cellTip() {
 export class Grid {
   constructor(opts = {}) {
     this.o = Object.assign({
-      rowHeight: 21,
+      rowHeight: 23,
       editable: false,
       gutter: true,
       emptyText: '',

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<meta name="theme-color" content="#f0f0f0">
+<meta name="theme-color" content="#f3f4f7">
 <title>ZawSQL</title>
 <script>
   // Apply the theme before the first paint so dark mode doesn't flash light while the app loads.
@@ -17,7 +17,7 @@
     } catch (e) { /* storage unavailable */ }
     if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     document.documentElement.dataset.theme = t;
-    document.querySelector('meta[name=theme-color]').content = t === 'dark' ? '#2b2d30' : '#f0f0f0';
+    document.querySelector('meta[name=theme-color]').content = t === 'dark' ? '#14161b' : '#f3f4f7';
   })();
 </script>
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
@@ -27,13 +27,16 @@
 <script type="module" src="js/app.js"></script>
 </head>
 <body>
-<div id="menubar"></div>
-<div id="toolbar"></div>
+<header id="topbar">
+  <div class="brand"><img src="favicon.svg" width="22" height="22" alt=""><span>ZawSQL</span></div>
+  <nav id="menubar"></nav>
+  <div id="toolbar"></div>
+</header>
 <div id="main">
   <div id="left">
     <div id="tree-filters">
-      <input id="db-filter" class="inp" placeholder="Database filter" spellcheck="false">
-      <input id="tbl-filter" class="inp" placeholder="Table filter" spellcheck="false">
+      <input id="db-filter" class="inp side-filter" placeholder="Databases" spellcheck="false" title="Database filter">
+      <input id="tbl-filter" class="inp side-filter" placeholder="Tables" spellcheck="false" title="Table filter">
     </div>
     <div id="tree-host"></div>
   </div>

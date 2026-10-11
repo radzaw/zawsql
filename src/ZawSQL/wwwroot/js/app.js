@@ -200,7 +200,7 @@ class App {
     document.documentElement.style.setProperty('--ed-font-size', p.editorFontSize + 'px');
     this.log?.markAll(); // the slow statement threshold may have changed
     // The app window's title bar follows theme-color in Chromium app windows.
-    document.querySelector('meta[name=theme-color]')?.setAttribute('content', dark ? '#2b2d30' : '#f0f0f0');
+    document.querySelector('meta[name=theme-color]')?.setAttribute('content', dark ? '#14161b' : '#f3f4f7');
     try { sessionStorage.setItem('zawsql-theme', p.theme); } catch { /* storage unavailable */ }
     if (this.themeBtn) {
       this.themeBtn.innerHTML = icon(dark ? 'sun' : 'moon');
@@ -372,11 +372,10 @@ class App {
     const tb = document.getElementById('toolbar');
     const b = (ic, title, fn) => h('button', { class: 'tbtn', title, html: icon(ic), onclick: fn });
     tb.append(
+      h('button', { class: 'tbtn new-btn', title: 'New query tab (Ctrl+T)', onclick: () => this.openQueryTab(), html: icon('plus') + '<span>New query</span>' }),
       b('sessions', 'Session manager', () => sessionManager(this)),
       b('disconnect', 'Disconnect', () => this.sel.sid && this.disconnect(this.sel.sid)),
-      h('span', { class: 'sep' }),
       b('refresh', 'Refresh (F5)', () => this.refresh()),
-      b('newtab', 'New query tab (Ctrl+T)', () => this.openQueryTab()),
       h('span', { class: 'sep' }),
       b('play', 'Execute SQL (F9)', () => this.queryForRun()?.run('all')),
       b('playsel', 'Execute selection (Ctrl+F9)', () => this.queryForRun()?.run('selection')),
@@ -384,11 +383,11 @@ class App {
       b('stop', 'Stop running query', () => this.activeQuery()?.stop()),
       h('span', { class: 'sep' }),
       b('database', 'Create database', () => this.sel.sid && createDatabaseDialog(this, this.sel.sid)),
-      b('plus', 'Create table', () => this.sel.db && this.newTable(this.sel.sid, this.sel.db)),
+      b('table', 'Create table',() => this.sel.db && this.newTable(this.sel.sid, this.sel.db)),
       b('export', 'Export database as SQL', () => this.sel.db && exportDumpDialog(this, this.sel.sid, this.sel.db)),
       b('import', 'Run SQL file', () => runSqlFile(this)),
       b('user', 'User manager', () => this.sel.sid && userManager(this, this.sel.sid)),
-      h('span', { class: 'sep' }),
+      h('span', { class: 'grow' }),
       b('settings', 'Preferences', () => preferencesDialog(this)),
       (this.themeBtn = b('moon', 'Switch to dark mode', () => this.toggleTheme())),
     );

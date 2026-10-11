@@ -37,6 +37,7 @@ export class QueryView {
     });
     const btn = (ic, label, title, fn) => h('button', { class: 'tbtn', title, html: icon(ic) + (label ? `<span>${label}</span>` : ''), onclick: fn });
     this.runBtn = btn('play', 'Run', 'Execute SQL (F9)', () => this.run('all'));
+    this.runBtn.classList.add('run-btn');
     this.runSelBtn = btn('playsel', '', 'Execute selection (Ctrl+F9)', () => this.run('selection'));
     this.runCurBtn = btn('playline', '', 'Execute current query (Ctrl+Shift+F9)', () => this.run('current'));
     this.multiBtn = btn('server', '', 'Run on several servers (Ctrl+Alt+F9) – right-click for server groups', () => this.runMulti());
