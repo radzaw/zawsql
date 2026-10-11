@@ -394,7 +394,7 @@ select.inp { padding: 0 4px; }
 .gr.dirty { background: var(--dirty); }
 .gc {
   flex: none; height: 100%; padding: 0 8px; line-height: 22px; white-space: pre; overflow: hidden; text-overflow: ellipsis;
-  border-right: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); font-variant-numeric: tabular-nums;
+  border-right: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft);
 }
 .gc.gutter { padding: 0; text-align: center; color: var(--faint); font-size: 10.5px; background: var(--canvas); }
 .gc.k-int, .gc.k-real { text-align: right; }
@@ -699,6 +699,7 @@ select.cell-inp { padding: 0 4px; }
 .lib-host { flex: none; display: flex; min-width: 0; border-left: 1px solid var(--line); background: var(--surface); }
 .lib-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .lib-head { display: flex; align-items: center; gap: 4px; padding: 8px 8px 0; }
+.lib-head .subtabs { flex-wrap: nowrap; min-width: 0; }
 .lib-head .subtab { padding: 0 8px; white-space: nowrap; }
 .lib-filter { margin: 8px; width: auto; }
 .lib-list { flex: 1; overflow: auto; outline: none; padding: 0 6px 8px; }

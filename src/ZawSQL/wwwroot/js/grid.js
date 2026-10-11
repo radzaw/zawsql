@@ -4,7 +4,8 @@ import { h, esc, isNumericKind } from './util.js';
 import { icon } from './icons.js';
 import { needsPreview, previewText, placePreview, PREVIEW_DELAY } from './cellpreview.js';
 
-const GRID_FONT = '12px "Segoe UI", system-ui, Ubuntu, Cantarell, "Noto Sans", sans-serif';
+// Must match .grid / .gh-t in app.css (font, cell padding) so measured widths fit.
+const GRID_FONT = '12.5px "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Ubuntu, Cantarell, "Noto Sans", sans-serif';
 const measureCtx = document.createElement('canvas').getContext('2d');
 
 // One preview element for all grids.
@@ -109,15 +110,16 @@ export class Grid {
   }
 
   measureCol(i, sampleRows = 200) {
-    measureCtx.font = GRID_FONT;
     const c = this.columns[i];
-    let w = measureCtx.measureText(c.name).width + (c.key ? 40 : 24);
+    measureCtx.font = `600 ${GRID_FONT}`;
+    let w = measureCtx.measureText(c.name).width + (c.key ? 50 : 32);
+    measureCtx.font = GRID_FONT;
     const n = Math.min(this.rows.length, sampleRows);
     for (let r = 0; r < n; r++) {
       const v = this.rows[r][i];
       const t = v == null ? '(NULL)' : this.cellText(v, c);
       if (t.length > 100) { w = Math.max(w, 360); break; }
-      w = Math.max(w, measureCtx.measureText(t).width + 12);
+      w = Math.max(w, measureCtx.measureText(t).width + 20);
     }
     return Math.round(Math.min(Math.max(w, 36), 360));
   }
