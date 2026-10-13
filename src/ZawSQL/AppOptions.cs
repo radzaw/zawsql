@@ -7,8 +7,13 @@ public sealed class AppOptions
     public int Port { get; private set; }
     public bool NoBrowser { get; private set; }
     public bool KeepAlive { get; private set; }
+    /// <summary>Open the UI in a browser app window instead of the native window.</summary>
+    public bool UseBrowser { get; private set; }
     public bool ShowHelp { get; private set; }
-    /// <summary>Restarted after an update: don't open a window (the existing one reloads) and wait for the port.</summary>
+    /// <summary>
+    /// Restarted after an update: wait for the port, and don't open a browser window (the existing one reloads).
+    /// A native window closed with the previous process, so that one is opened again.
+    /// </summary>
     public bool Attach { get; private set; }
     public string? Browser { get; private set; }
     public string ConfigDir { get; private set; } = DefaultConfigDir();
@@ -19,9 +24,10 @@ public sealed class AppOptions
 
         Usage: ZawSQL [options]
           --port <n>        Listen on this local port (default: a random free port)
-          --no-browser      Don't open an app window; print the URL instead (implies --keep-alive)
-          --keep-alive      Keep running after the last window is closed
-          --browser <path>  Chromium-based browser used for the app window (Chrome, Edge, Chromium, Brave)
+          --no-browser      Don't open a window; print the URL instead (implies --keep-alive)
+          --use-browser     Use a browser app window instead of the native window
+          --keep-alive      Keep running after the last browser window is closed
+          --browser <path>  Chromium-based browser for the app window (implies --use-browser)
           --config <dir>    Configuration directory (saved sessions, UI state)
           --token <value>   Use a fixed API token instead of a random one (for automation and tests;
                             letters, digits, '-' and '_', at least 16 characters)
@@ -40,7 +46,8 @@ public sealed class AppOptions
                 case "--no-browser": o.NoBrowser = true; o.KeepAlive = true; break;
                 case "--keep-alive": o.KeepAlive = true; break;
                 case "--attach": o.Attach = true; break;
-                case "--browser": o.Browser = Next(); break;
+                case "--browser": o.Browser = Next(); o.UseBrowser = true; break;
+                case "--use-browser": o.UseBrowser = true; break;
                 case "--config": o.ConfigDir = Path.GetFullPath(Next()); break;
                 case "--token":
                     o.Token = Next();
@@ -52,6 +59,9 @@ public sealed class AppOptions
         }
         return o;
     }
+
+    /// <summary>The native window isn't available: a browser window is used, also after an update restart.</summary>
+    public void FallBackToBrowser() => UseBrowser = true;
 
     static string DefaultConfigDir()
     {

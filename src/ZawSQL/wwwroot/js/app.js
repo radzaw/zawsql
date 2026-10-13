@@ -1,6 +1,6 @@
 // ZawSQL main module: layout, menus, toolbar, tabs and the glue between tree and views.
 import { get, post, put, setLogSink, startHeartbeat, ApiError, SSH_HOSTKEY_UNKNOWN } from './api.js';
-import { h, qi, debounce, makeSplitter, fmtElapsed } from './util.js';
+import { h, qi, debounce, makeSplitter, fmtElapsed, NATIVE, openExternal } from './util.js';
 import { icon } from './icons.js';
 import { Tree } from './tree.js';
 import { LogPanel } from './log.js';
@@ -184,6 +184,16 @@ class App {
       // Closing the window closes the connections, which rolls back open transactions: let the browser ask.
       if (this.queryViews.some(v => v.tx?.open)) e.preventDefault();
     });
+    if (NATIVE) {
+      // The native window doesn't run beforeunload: it asks here before closing.
+      window.external.receiveMessage(m => { if (m === 'close-request') this.closeNativeWindow(); });
+      window.external.sendMessage('ready');
+      // Links to web pages (release notes) open in the default browser, not in a web view popup.
+      document.addEventListener('click', e => {
+        const a = e.target.closest?.('a[target=_blank]');
+        if (a && /^https?:/.test(a.href)) { e.preventDefault(); openExternal(a.href); }
+      });
+    }
 
     startHeartbeat();
     setTimeout(() => autoCheckUpdates(this), 15_000);
@@ -201,6 +211,7 @@ class App {
     this.log?.markAll(); // the slow statement threshold may have changed
     // The app window's title bar follows theme-color in Chromium app windows.
     document.querySelector('meta[name=theme-color]')?.setAttribute('content', dark ? '#14161b' : '#f3f4f7');
+    if (NATIVE) window.external.sendMessage(dark ? 'theme:dark' : 'theme:light'); // and so does the native one's
     try { sessionStorage.setItem('zawsql-theme', p.theme); } catch { /* storage unavailable */ }
     if (this.themeBtn) {
       this.themeBtn.innerHTML = icon(dark ? 'sun' : 'moon');
@@ -475,6 +486,17 @@ class App {
       this.updateTabs();
       this.showTarget('host');
     }
+  }
+
+  /** The native window's close button: save, and ask first when closing would roll back open transactions. */
+  async closeNativeWindow() {
+    const open = this.queryViews.filter(v => v.tx?.open).length;
+    if (open && !(await confirmDlg(`${open === 1 ? 'A query tab has a transaction' : `${open} query tabs have transactions`} in progress. Closing ZawSQL rolls ${open === 1 ? 'it' : 'them'} back.`, { ok: 'Roll back and close' }))) {
+      window.external.sendMessage('close-cancel');
+      return;
+    }
+    await this.saveState();
+    window.external.sendMessage('close');
   }
 
   async exit() {

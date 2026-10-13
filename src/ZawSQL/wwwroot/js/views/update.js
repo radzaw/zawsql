@@ -1,6 +1,6 @@
 // Self-update: "Check for updates" dialog (release notes, download with progress, restart into the new version)
 // and the once-a-day automatic check that shows a notice in the status bar.
-import { h } from '../util.js';
+import { h, openExternal } from '../util.js';
 import { icon } from '../icons.js';
 import { get, post } from '../api.js';
 import { modal, confirmDlg } from '../dialogs.js';
@@ -48,7 +48,7 @@ export async function updateDialog(app) {
     return done;
   }
 
-  const page = r.page ? h('button', { class: 'btn', onclick: () => window.open(r.page, '_blank', 'noopener') }, 'Open release page') : '';
+  const page = r.page ? h('button', { class: 'btn', onclick: () => openExternal(r.page) }, 'Open release page') : '';
   if (!r.newer) {
     app.state.updates.found = null;
     showNotice(app, null);
@@ -180,7 +180,7 @@ export async function whatsNewDialog(app, { since = null, pending = null, quiet 
         h('div', { class: 'wn-head' }, h('b', null, r.name || `ZawSQL ${r.version}`), h('span', { class: 'muted' }, date(r))),
         h('div', { html: renderNotes(r.notes) || '<p class="muted">No release notes.</p>' }))))),
     buttons: [
-      ...(all ? [{ label: 'All releases', align: 'left', onClick: () => { window.open(all, '_blank', 'noopener'); return false; } }] : []),
+      ...(all ? [{ label: 'All releases', align: 'left', onClick: () => { openExternal(all); return false; } }] : []),
       { label: 'Close', value: true, primary: true },
     ],
   });

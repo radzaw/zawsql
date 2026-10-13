@@ -447,14 +447,17 @@ public sealed partial class Updater(AppOptions opts)
     }
 
     /// <summary>
-    /// The new process takes over: same port, token and configuration; --attach means "don't open another window,
-    /// wait for the port to be released"; keep-alive mode carries over.
+    /// The new process takes over: same port, token and configuration; --attach means "wait for the port to be
+    /// released, and don't open another browser window" (the open one reloads; a native window closes with this
+    /// process, so the new one opens its own). The kind of window and keep-alive mode carry over.
     /// </summary>
     public static List<string> RestartArguments(AppOptions o, int port)
     {
         var args = new List<string> { "--port", port.ToString(System.Globalization.CultureInfo.InvariantCulture), "--token", o.Token, "--config", o.ConfigDir, "--attach" };
-        if (o.KeepAlive) args.Add("--keep-alive");
+        if (o.NoBrowser) args.Add("--no-browser");
+        else if (o.KeepAlive) args.Add("--keep-alive");
         if (o.Browser != null) args.AddRange(["--browser", o.Browser]);
+        else if (o.UseBrowser) args.Add("--use-browser");
         return args;
     }
 }

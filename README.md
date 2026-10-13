@@ -2,7 +2,7 @@
 
 A lightweight MySQL / MariaDB desktop client in the spirit of HeidiSQL, written in C#.
 
-The backend is an ASP.NET Core app that talks to the database (via [MySqlConnector](https://mysqlconnector.net/)). The UI is plain HTML/CSS/JS embedded in the executable. ZawSQL opens it in a chromeless **app-mode window** of an installed Chromium browser (Chrome, Edge, Chromium or Brave), so it looks and behaves like a desktop window on **Windows, Linux and macOS**. Closing the window quits the app.
+The backend is an ASP.NET Core app that talks to the database (via [MySqlConnector](https://mysqlconnector.net/)). The UI is plain HTML/CSS/JS embedded in the executable, shown in a **native window** through [Photino](https://www.tryphotino.io) with the operating system's own web view: WebView2 on Windows, WKWebView on macOS and WebKitGTK on Linux. Its title bar follows the light or dark theme, and closing it quits the app. Where the web view isn't available (WebKitGTK not installed, or no display), ZawSQL falls back to a chromeless app-mode window of an installed Chromium browser (Chrome, Edge, Chromium or Brave).
 
 ![ZawSQL main window: object tree, database tab listing all tables with rows, size, engine and collation, and the SQL log](docs/database-view.webp)
 
@@ -70,7 +70,7 @@ The backend is an ASP.NET Core app that talks to the database (via [MySqlConnect
 - **Manual commit (transactions)** per query tab (the Auto-commit / Manual commit toolbar button, or Query › Manual commit): the tab gets its own connection with autocommit off, so its changes stay in a transaction until **Commit** or **Rollback**. Other tabs, the Data tab and other users see them only after the commit.
   - The toolbar shows "Transaction open · 3 changes · 2 min", the tab gets an orange dot, and a transaction open longer than 5 minutes turns red, since its locks may block others. Edits in the tab's result grid join the transaction. Commits on production servers ask first.
   - It also follows what statements do: `COMMIT` / `ROLLBACK` typed in the editor end the transaction, DDL and other statements that commit implicitly (CREATE, ALTER, TRUNCATE, GRANT, LOCK TABLES …) say that they committed the open changes, `SET autocommit` can't silently switch the tab out of manual mode, and a deadlock that rolled everything back is reported.
-  - Closing the tab, switching back to auto-commit or disconnecting asks whether to commit or roll back first. Closing the window rolls back (the browser asks before leaving). If the server drops the connection, the next run says the transaction was rolled back instead of running on a fresh connection.
+  - Closing the tab, switching back to auto-commit or disconnecting asks whether to commit or roll back first. Closing the window rolls back (ZawSQL asks first). If the server drops the connection, the next run says the transaction was rolled back instead of running on a fresh connection.
   - Preferences › New query tabs: auto-commit, manual commit, or manual commit on production servers only.
 - **Run on several servers** (the server button in the query toolbar, Query › Run on several servers, or Ctrl+Alt+F9): runs the editor's statements (or the selection) on the saved sessions you pick, for example the same check or migration on every shard or environment.
   - The picker has a filter, shows which sessions are connected, production or read-only, and remembers the last choice. A database name applies to all of them; otherwise each uses its default.
@@ -167,7 +167,7 @@ The backend is an ASP.NET Core app that talks to the database (via [MySqlConnect
 ## Requirements
 
 - To build: [.NET 10 SDK](https://dotnet.microsoft.com/download)
-- To run: any Chromium-based browser for the app window (Chrome, Edge, Chromium, Brave). If none is found, ZawSQL opens the default browser.
+- To run a published build: nothing on Windows 10 and 11 (self-contained; the WebView2 runtime comes with Windows) or macOS. On Linux the native window needs WebKitGTK 4.1 and libnotify (`sudo apt install libwebkit2gtk-4.1-0 libnotify4` on Debian and Ubuntu); without them a Chromium-based browser is used for the window (Chrome, Edge, Chromium, Brave), or the default browser.
 
 ## Run from source
 
@@ -274,14 +274,15 @@ Only tag builds are signed. Builds from `main` and pull requests never touch the
 ```
 ZawSQL [options]
   --port <n>        Listen on this local port (default: random free port)
-  --no-browser      Don't open an app window; print the URL instead (implies --keep-alive)
-  --keep-alive      Keep running after the last window is closed
-  --browser <path>  Chromium-based browser used for the app window
+  --no-browser      Don't open a window; print the URL instead (implies --keep-alive)
+  --use-browser     Use a browser app window instead of the native window
+  --keep-alive      Keep running after the last browser window is closed
+  --browser <path>  Chromium-based browser for the app window (implies --use-browser)
   --config <dir>    Configuration directory (saved sessions, UI state)
   --token <value>   Fixed API token instead of a random one (for automation and tests)
 ```
 
-Configuration is stored in `%APPDATA%\ZawSQL` on Windows and `~/.config/ZawSQL` on Linux and macOS.
+Configuration is stored in `%APPDATA%\ZawSQL` on Windows and `~/.config/ZawSQL` on Linux and macOS. The native window keeps its web view data in `webview/` there, the fallback browser window its profile in `browser/`.
 
 ## Keyboard shortcuts
 
@@ -313,7 +314,8 @@ Configuration is stored in `%APPDATA%\ZawSQL` on Windows and `~/.config/ZawSQL` 
 
 ```
 src/ZawSQL/
-  Program.cs            host setup, token check, embedded static files, browser launch
+  Program.cs            host setup, token check, embedded static files, window launch
+  AppWindow.cs          the native window (Photino): close handshake, title bar theme, external links
   Api.cs                minimal-API endpoints (/api/...)
   ConnectionManager.cs  per-session main connection + pooled metadata connections
   TableMeta.cs          columns / indexes / foreign keys / SHOW CREATE
@@ -325,8 +327,8 @@ src/ZawSQL/
   Explainer.cs          EXPLAIN FORMAT=JSON / ANALYZE for Visual EXPLAIN
   Replication.cs        replica channels and primary status, normalized across MySQL and MariaDB
   SessionStore.cs       saved sessions, UI state and the query library (JSON)
-  Heartbeat.cs          exits when the last window closes
-  BrowserLauncher.cs    finds Chrome/Edge/Chromium and opens an --app window
+  Heartbeat.cs          exits when the last browser window closes
+  BrowserLauncher.cs    fallback: finds Chrome/Edge/Chromium and opens an --app window
   wwwroot/              UI (no build step, no external dependencies)
     js/app.js           layout, menus, tabs, tree actions, autocompletion
     js/grid.js          virtualized editable grid
@@ -341,3 +343,7 @@ Each connected session has one **main connection**. Query tabs and grid edits ru
 ## Not (yet) implemented
 
 SSH agent / jump-host chains, old binary Excel .xls files (save them as .xlsx or CSV).
+
+## Credits
+
+The native window uses [Photino](https://github.com/tryphotino/photino.NET) (Apache-2.0).

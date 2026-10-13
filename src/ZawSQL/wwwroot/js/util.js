@@ -1,5 +1,14 @@
 // Small DOM and formatting helpers shared by all modules.
 
+/** Running in the native window (Photino injects window.external.sendMessage) rather than a browser. */
+export const NATIVE = typeof globalThis.window?.external?.sendMessage === 'function';
+
+/** Opens a web page: in the default browser from the native window, in a new tab otherwise. */
+export function openExternal(url) {
+  if (NATIVE) window.external.sendMessage('open:' + url);
+  else window.open(url, '_blank', 'noopener');
+}
+
 const PROPS = new Set(['value', 'checked', 'selected', 'disabled', 'readOnly', 'spellcheck', 'tabIndex', 'multiple']);
 
 export function h(tag, attrs, ...kids) {

@@ -74,9 +74,14 @@ public sealed class UpdaterTests : IDisposable
     public void The_new_process_takes_over_port_token_and_mode()
     {
         var o = AppOptions.Parse(["--no-browser", "--token", "token-0123456789abcdef", "--config", dir, "--browser", "/opt/chrome"]);
-        Assert.Equal(["--port", "5300", "--token", "token-0123456789abcdef", "--config", dir, "--attach", "--keep-alive", "--browser", "/opt/chrome"], Updater.RestartArguments(o, 5300));
+        Assert.Equal(["--port", "5300", "--token", "token-0123456789abcdef", "--config", dir, "--attach", "--no-browser", "--browser", "/opt/chrome"], Updater.RestartArguments(o, 5300));
         var windowed = AppOptions.Parse(["--token", "token-0123456789abcdef", "--config", dir]);
-        Assert.DoesNotContain("--keep-alive", Updater.RestartArguments(windowed, 1));
+        Assert.Equal(["--port", "1", "--token", "token-0123456789abcdef", "--config", dir, "--attach"], Updater.RestartArguments(windowed, 1));
+        var browser = AppOptions.Parse(["--use-browser", "--keep-alive", "--token", "token-0123456789abcdef", "--config", dir]);
+        Assert.Equal(["--keep-alive", "--use-browser"], Updater.RestartArguments(browser, 1)[^2..]);
+        // A native window that couldn't open fell back to a browser window: the new version uses one too.
+        windowed.FallBackToBrowser();
+        Assert.Equal("--use-browser", Updater.RestartArguments(windowed, 1)[^1]);
         Assert.True(AppOptions.Parse(["--attach"]).Attach);
     }
 
