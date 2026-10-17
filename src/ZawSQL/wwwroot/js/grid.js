@@ -426,15 +426,16 @@ export class Grid {
 
   // ---------- clipboard ----------
 
-  selectedText() {
+  /** The selected cells as tab separated text; `several` quotes cells as for a multi-cell copy even when one is selected. */
+  selectedText(several = false) {
     const s = this.selRect();
     if (!s) return '';
+    several ||= s.r1 !== s.r2 || s.c1 !== s.c2;
     const lines = [];
     for (let r = s.r1; r <= s.r2; r++) {
       const vals = [];
       for (let c = s.c1; c <= s.c2; c++) {
-        const v = this.rows[r][c];
-        vals.push(v == null ? 'NULL' : v);
+        vals.push(clipCell(this.rows[r][c], several));
       }
       lines.push(vals.join('\t'));
     }
@@ -511,6 +512,15 @@ export class Grid {
     e.el.remove();
     this.focus();
   }
+}
+
+/**
+ * A cell as copied to the clipboard. With several cells, one holding a tab, line break or quote is quoted the way
+ * spreadsheets read it ("…" with "" inside), so it stays one cell; a single cell is copied as it is.
+ */
+export function clipCell(v, several) {
+  if (v == null) return 'NULL';
+  return several && /[\t\r\n"]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
 }
 
 /** Sorts rows in place by column; used for client-side sorting of result grids. */

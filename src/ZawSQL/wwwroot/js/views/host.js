@@ -116,7 +116,8 @@ export class HostView {
     clearInterval(this.timer);
     this.timer = null;
     const s = +this.autoSel.value;
-    if (this.kind === 'processes' && s > 0) this.timer = setInterval(() => this.load(true), s * 1000);
+    // A tick while the last list is still loading is skipped: on a busy server the requests would pile up.
+    if (this.kind === 'processes' && s > 0) this.timer = setInterval(() => { if (!this.loading) this.load(true); }, s * 1000);
   }
 
   async load(quiet = false) {
@@ -124,9 +125,12 @@ export class HostView {
     if (!sid) return;
     const kind = this.kind;
     this.key = sid + ':' + kind;
+    const seq = this.loadSeq = (this.loadSeq || 0) + 1;
+    this.loading = true;
     try {
       const rs = await get(`/s/${sid}/host`, { kind }, { quiet });
-      if (this.key !== sid + ':' + kind) return;
+      // Only the latest request counts (a manual refresh can overtake a slow automatic one).
+      if (seq !== this.loadSeq || this.key !== sid + ':' + kind) return;
       this.cols = rs.columns.map(c => ({
         name: c.name,
         kind: c.name === 'Size' || c.name === 'Tables' || c.name === 'Id' || c.name === 'Time' ? 'int' : c.kind,
@@ -136,7 +140,9 @@ export class HostView {
       this.allRows = rs.rows;
       this.applyFilter(quiet);
     } catch (e) {
-      if (!quiet) this.app.showError(e);
+      if (!quiet && seq === this.loadSeq) this.app.showError(e);
+    } finally {
+      if (seq === this.loadSeq) this.loading = false;
     }
   }
 

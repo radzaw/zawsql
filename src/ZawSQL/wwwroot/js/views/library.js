@@ -44,41 +44,57 @@ export class LibraryStore {
     for (const fn of this.listeners) fn();
   }
 
-  async addQuery(fields) {
-    const q = makeQuery(fields);
-    this.lib.queries.push(q);
-    await this.commit();
-    return q;
+  /**
+   * Applies fn(lib) and saves. When saving fails the change is undone: otherwise the panel would show a query that
+   * isn't saved (and saving it again would clash with its own name), or a later save would write it after all.
+   */
+  async change(fn) {
+    const before = structuredClone(this.lib);
+    const r = fn(this.lib);
+    try {
+      await this.commit();
+    } catch (e) {
+      this.lib = before;
+      for (const l of this.listeners) l();
+      throw e;
+    }
+    return r;
   }
 
-  async updateQuery(id, fields) {
+  addQuery(fields) {
+    return this.change(lib => {
+      const q = makeQuery(fields);
+      lib.queries.push(q);
+      return q;
+    });
+  }
+
+  updateQuery(id, fields) {
     const q = this.query(id);
-    if (!q) throw new Error('This saved query no longer exists.');
-    Object.assign(q, fields, { folder: normalizeFolder(fields.folder ?? q.folder), updated: Date.now() });
-    await this.commit();
-    return q;
+    if (!q) return Promise.reject(new Error('This saved query no longer exists.'));
+    return this.change(() => Object.assign(q, fields, { folder: normalizeFolder(fields.folder ?? q.folder), updated: Date.now() }));
   }
 
-  async addSnippet(fields) {
-    const s = makeSnippet(fields);
-    this.lib.snippets.push(s);
-    await this.commit();
-    return s;
+  addSnippet(fields) {
+    return this.change(lib => {
+      const s = makeSnippet(fields);
+      lib.snippets.push(s);
+      return s;
+    });
   }
 
-  async updateSnippet(id, fields) {
+  updateSnippet(id, fields) {
     const s = this.snippet(id);
-    if (!s) throw new Error('This snippet no longer exists.');
-    Object.assign(s, fields, { updated: Date.now() });
-    await this.commit();
-    return s;
+    if (!s) return Promise.reject(new Error('This snippet no longer exists.'));
+    return this.change(() => Object.assign(s, fields, { updated: Date.now() }));
   }
 
-  async remove(kind, id) {
-    const list = kind === 'query' ? this.lib.queries : this.lib.snippets;
-    const i = list.findIndex(x => x.id === id);
-    if (i >= 0) list.splice(i, 1);
-    await this.commit();
+  remove(kind, id) {
+    return this.change(lib => {
+      const list = kind === 'query' ? lib.queries : lib.snippets;
+      const i = list.findIndex(x => x.id === id);
+      if (i >= 0) list.splice(i, 1);
+    });
   }
 }
 
@@ -179,8 +195,7 @@ export async function importLibrary(app) {
     return alertError(`${f.name} is not a JSON file.`);
   }
   if (!data || !Array.isArray(data.queries) || !Array.isArray(data.snippets)) return alertError(`${f.name} is not a ZawSQL library export.`);
-  const res = mergeLibrary(app.library.lib, data);
-  await app.library.commit();
+  const res = await app.library.change(lib => mergeLibrary(lib, data));
   alertInfo(`Imported from ${f.name}:\n${res.added} added, ${res.updated} updated, ${res.skipped} already present.`, 'Import library');
 }
 
@@ -392,8 +407,8 @@ export class LibraryPanel {
       '-',
       {
         label: 'Restore default snippets', onClick: async () => {
-          const n = restoreDefaultSnippets(this.app.library.lib);
-          if (n) await this.app.library.commit().catch(e => this.app.showError(e));
+          let n;
+          try { n = await this.app.library.change(lib => restoreDefaultSnippets(lib)); } catch (e) { return this.app.showError(e); }
           this.app.setStatus(n ? `Restored ${n} default snippet(s).` : 'All default snippets are present.');
         },
       },

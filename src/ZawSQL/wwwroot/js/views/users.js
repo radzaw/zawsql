@@ -344,7 +344,15 @@ export async function userManager(app, sid) {
     else { renderList(); renderTabs(); renderPane(); refreshState(); }
   }
 
-  async function save() {
+  // Save / Delete stay clickable while the statements run; a second click would send them again.
+  let busy = false;
+  const once = fn => async () => {
+    if (busy) return;
+    busy = true;
+    try { await fn(); } finally { busy = false; }
+  };
+
+  const save = once(async () => {
     if (!m || ro) return;
     if (pw1.value !== pw2.value) return alertError('The passwords do not match.');
     if (!m.user.trim() && !(await confirmDlg('Create an anonymous account (empty user name)?'))) return;
@@ -363,7 +371,7 @@ export async function userManager(app, sid) {
     const [u, hst] = target;
     m = null;
     await reload(u, hst);
-  }
+  });
 
   async function discard() {
     if (!m) return;
@@ -374,7 +382,7 @@ export async function userManager(app, sid) {
     await switchTo(users.find(x => x.user === u && x.host === hst));
   }
 
-  async function del() {
+  const del = once(async () => {
     if (!m || m.isNew || ro) return;
     const info = app.conns.get(sid);
     const self = info && `${m.user}@${m.host}` === info.user;
@@ -385,7 +393,7 @@ export async function userManager(app, sid) {
     app.setStatus(`Account ${m.orig.user}@${m.orig.host} deleted.`);
     m = null;
     await reload();
-  }
+  });
 
   renderList();
   renderTabs();

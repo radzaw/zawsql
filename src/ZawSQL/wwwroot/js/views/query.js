@@ -6,7 +6,7 @@ import { RowEditor } from './editing.js';
 import { SqlEditor } from '../editor.js';
 import { splitSql, statementAt } from '../sqlsplit.js';
 import { fillParams } from './queryparams.js';
-import { Grid, sortRows } from '../grid.js';
+import { Grid, sortRows, clipCell } from '../grid.js';
 import { contextMenu, modal, confirmDlg } from '../dialogs.js';
 import { wantsManual, txStatus, endQuestion } from '../txlogic.js';
 import { exportGridDialog } from './tools.js';
@@ -668,7 +668,7 @@ export class QueryView {
     if (!this.sets.length) return;
     contextMenu(e.clientX, e.clientY, [
       { label: 'Copy', icon: 'copy', shortcut: 'Ctrl+C', onClick: () => this.grid.copy() },
-      { label: 'Copy with column names', onClick: () => this.grid.copy(this.cols.slice(this.grid.selRect().c1, this.grid.selRect().c2 + 1).map(c => c.name).join('\t') + '\n' + this.grid.selectedText()) },
+      { label: 'Copy with column names', onClick: () => this.grid.copy(this.cols.slice(this.grid.selRect().c1, this.grid.selRect().c2 + 1).map(c => clipCell(c.name, true)).join('\t') + '\n' + this.grid.selectedText(true)) },
       '-',
       ...(this.editTarget ? [...this.rowEditor.menuItems(p), '-'] : []),
       { label: 'Export grid rows…', icon: 'export', onClick: () => exportGridDialog(this.app, { columns: this.cols, rows: this.rows, selected: this.grid.selectedRowIndexes(), name: this.sets[this.active].columns[0]?.table || 'result' }) },

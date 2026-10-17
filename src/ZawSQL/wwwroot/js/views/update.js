@@ -26,7 +26,9 @@ function showNotice(app, version) {
   if (!el) return;
   const current = app.version?.version;
   el.style.display = version && version !== current && version !== app.state.updates?.skipped ? '' : 'none';
-  el.innerHTML = `${icon('next')}<span>ZawSQL ${version} is available</span>`;
+  // The version is a release's tag name (and comes back from the saved state): text, never markup.
+  el.innerHTML = icon('next');
+  el.append(h('span', null, `ZawSQL ${version} is available`));
   el.onclick = () => updateDialog(app);
 }
 
