@@ -75,7 +75,22 @@ public sealed partial class Updater(AppOptions opts)
         if (pa == pb) return 0;
         if (pa == null) return 1;
         if (pb == null) return -1;
-        return string.CompareOrdinal(pa, pb);
+        return ComparePreReleases(pa, pb);
+    }
+
+    /// <summary>Semantic versioning order: dot-separated parts, numbers numerically (beta.10 after beta.9) and before words.</summary>
+    static int ComparePreReleases(string a, string b)
+    {
+        var x = a.Split('.');
+        var y = b.Split('.');
+        for (var i = 0; i < Math.Min(x.Length, y.Length); i++)
+        {
+            var xn = long.TryParse(x[i], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var xv);
+            var yn = long.TryParse(y[i], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var yv);
+            var c = xn && yn ? xv.CompareTo(yv) : xn ? -1 : yn ? 1 : string.CompareOrdinal(x[i], y[i]);
+            if (c != 0) return c;
+        }
+        return x.Length.CompareTo(y.Length);
     }
 
     /// <summary>"&lt;sha256&gt;  &lt;file&gt;" lines (sha256sum format, also with "*" for binary mode) → file → lower-case hash.</summary>
@@ -367,17 +382,27 @@ public sealed partial class Updater(AppOptions opts)
         }
     }
 
+    static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(60);
+
     async Task DownloadAsync(Release rel, Asset asset, Asset sums)
     {
         var target = UpdateFilePath(ExePath!);
+        // The client has no timeout (downloads take long): give up when no data arrives for a while instead, or the
+        // state stays "downloading" and no new attempt can start until a restart.
+        using var stalled = new CancellationTokenSource(StallTimeout);
         try
         {
             await DownloadVerifiedAsync(Http, asset.Url, sums.Url, asset.Name, target, (len, got) =>
             {
+                stalled.CancelAfter(StallTimeout);
                 lock (gate) { if (len is { } l) total = l; received = got; }
-            });
+            }, stalled.Token);
             var signer = VerifyPublisher(target);
             lock (gate) (state, downloaded, downloadSigner) = ("ready", target, signer?.Name);
+        }
+        catch (OperationCanceledException)
+        {
+            lock (gate) (state, error) = ("error", $"The download stalled (no data for {StallTimeout.TotalSeconds:0} seconds). Try again.");
         }
         catch (Exception ex)
         {
@@ -439,6 +464,8 @@ public sealed partial class Updater(AppOptions opts)
         foreach (var a in new[] { "--apply-update", ExePath!, "--parent", Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture), "--" })
             psi.ArgumentList.Add(a);
         foreach (var a in RestartArguments(opts, port)) psi.ArgumentList.Add(a);
+        // The helper passes its environment on to the new version.
+        psi.Environment[AppOptions.TokenVariable] = opts.Token;
         Process.Start(psi);
         lock (gate) state = "installing";
         // Let the HTTP answer go out, then free the port for the new version.
@@ -447,13 +474,14 @@ public sealed partial class Updater(AppOptions opts)
     }
 
     /// <summary>
-    /// The new process takes over: same port, token and configuration; --attach means "wait for the port to be
+    /// The new process takes over: same port and configuration (the token goes in the environment, see
+    /// <see cref="AppOptions.TokenVariable"/>); --attach means "wait for the port to be
     /// released, and don't open another browser window" (the open one reloads; a native window closes with this
     /// process, so the new one opens its own). The kind of window and keep-alive mode carry over.
     /// </summary>
     public static List<string> RestartArguments(AppOptions o, int port)
     {
-        var args = new List<string> { "--port", port.ToString(System.Globalization.CultureInfo.InvariantCulture), "--token", o.Token, "--config", o.ConfigDir, "--attach" };
+        var args = new List<string> { "--port", port.ToString(System.Globalization.CultureInfo.InvariantCulture), "--config", o.ConfigDir, "--attach" };
         if (o.NoBrowser) args.Add("--no-browser");
         else if (o.KeepAlive) args.Add("--keep-alive");
         if (o.Browser != null) args.AddRange(["--browser", o.Browser]);

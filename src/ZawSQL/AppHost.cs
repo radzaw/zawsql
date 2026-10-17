@@ -13,7 +13,9 @@ public static class AppHost
 {
     public static WebApplication Build(AppOptions opts)
     {
-        Directory.CreateDirectory(opts.ConfigDir);
+        // Saved sessions and their key live here: other users of the machine get no access (when it is created).
+        if (OperatingSystem.IsWindows()) Directory.CreateDirectory(opts.ConfigDir);
+        else Directory.CreateDirectory(opts.ConfigDir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { ContentRootPath = AppContext.BaseDirectory });
         builder.Logging.ClearProviders();
         builder.Logging.AddSimpleConsole(o => o.SingleLine = true);

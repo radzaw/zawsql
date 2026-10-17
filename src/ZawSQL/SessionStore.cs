@@ -236,9 +236,18 @@ public sealed class SessionStore
     static void WriteAtomic(string path, string content)
     {
         var tmp = path + ".tmp";
-        File.WriteAllText(tmp, content, new UTF8Encoding(false));
+        WriteRestricted(tmp, new UTF8Encoding(false).GetBytes(content));
         File.Move(tmp, path, overwrite: true);
         RestrictToUser(path);
+    }
+
+    /// <summary>Writes a file that is readable by this user only from the start, not just after a chmod.</summary>
+    static void WriteRestricted(string path, byte[] content)
+    {
+        var options = new FileStreamOptions { Mode = FileMode.Create, Access = FileAccess.Write };
+        if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        using (var fs = new FileStream(path, options)) fs.Write(content);
+        RestrictToUser(path); // an existing file keeps its mode on FileMode.Create
     }
 
     static void RestrictToUser(string path)
@@ -257,8 +266,7 @@ public sealed class SessionStore
             if (k.Length == 32) return k;
         }
         var nk = RandomNumberGenerator.GetBytes(32);
-        File.WriteAllBytes(keyFile, nk);
-        RestrictToUser(keyFile);
+        WriteRestricted(keyFile, nk);
         return nk;
     }
 

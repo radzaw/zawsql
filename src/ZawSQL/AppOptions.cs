@@ -34,9 +34,25 @@ public sealed class AppOptions
           -h, --help        Show this help
         """;
 
+    /// <summary>
+    /// Carries the token to the process an update starts. The environment, unlike the command line, isn't readable
+    /// by other users of the machine.
+    /// </summary>
+    public const string TokenVariable = "ZAWSQL_TOKEN";
+
     public static AppOptions Parse(string[] args)
     {
+        var inherited = Environment.GetEnvironmentVariable(TokenVariable);
+        // Not passed on to the processes this one starts (the browser).
+        if (inherited != null) Environment.SetEnvironmentVariable(TokenVariable, null);
+        return Parse(args, inherited);
+    }
+
+    /// <summary>Parses the command line; <paramref name="inheritedToken"/> is the token from the previous version.</summary>
+    public static AppOptions Parse(string[] args, string? inheritedToken)
+    {
         var o = new AppOptions();
+        if (!string.IsNullOrEmpty(inheritedToken)) o.Token = ValidToken(inheritedToken, TokenVariable);
         for (var i = 0; i < args.Length; i++)
         {
             string Next() => i + 1 < args.Length ? args[++i] : throw new ArgumentException($"Missing value for {args[i]}");
@@ -49,16 +65,17 @@ public sealed class AppOptions
                 case "--browser": o.Browser = Next(); o.UseBrowser = true; break;
                 case "--use-browser": o.UseBrowser = true; break;
                 case "--config": o.ConfigDir = Path.GetFullPath(Next()); break;
-                case "--token":
-                    o.Token = Next();
-                    if (o.Token.Length < 16 || !o.Token.All(ch => char.IsAsciiLetterOrDigit(ch) || ch is '-' or '_'))
-                        throw new ArgumentException("--token must be at least 16 characters of letters, digits, '-' or '_'.");
-                    break;
+                case "--token": o.Token = ValidToken(Next(), "--token"); break;
                 case "-h" or "--help" or "/?": o.ShowHelp = true; break;
             }
         }
         return o;
     }
+
+    static string ValidToken(string token, string source) =>
+        token.Length >= 16 && token.All(ch => char.IsAsciiLetterOrDigit(ch) || ch is '-' or '_')
+            ? token
+            : throw new ArgumentException($"{source} must be at least 16 characters of letters, digits, '-' or '_'.");
 
     /// <summary>The native window isn't available: a browser window is used, also after an update restart.</summary>
     public void FallBackToBrowser() => UseBrowser = true;

@@ -48,4 +48,15 @@ public class ReadOnlyGuardTests
     [InlineData("KILL 1")]
     [InlineData("PREPARE s FROM 'DELETE FROM logs'")]
     public void Blocks_everything_else(string sql) => Assert.NotNull(ReadOnlyGuard.Check(sql));
+
+    [Theory]
+    [InlineData("SELECT 1", false)]
+    [InlineData("SELECT 1;", false)]
+    [InlineData("SELECT 1; -- done\n", false)]
+    [InlineData("SELECT ';' AS a, `b;c` FROM t WHERE x = \"; DROP\" /* ; DROP */", false)]
+    [InlineData("SELECT 1; DROP TABLE logs", true)]
+    [InlineData("SELECT 1;/*!40101 DROP TABLE logs */", true)]
+    // The data grid's filter: closing the parenthesis to append a statement.
+    [InlineData("SELECT * FROM t WHERE (1); DELETE FROM t; SELECT (1\n)", true)]
+    public void Finds_a_second_statement(string sql, bool several) => Assert.Equal(several, ReadOnlyGuard.HasSeveralStatements(sql));
 }

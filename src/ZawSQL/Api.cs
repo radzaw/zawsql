@@ -223,7 +223,7 @@ public static class Api
             new { code = await TableMeta.ShowCreateAsync(c, log, db, type, name, ct) }));
 
         s.MapGet("/data", (string sid, string db, string table, int? offset, int? limit, string? order, string? dir, string? where,
-            ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, _, log) =>
+            ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, ses, log) =>
         {
             var m = await TableMeta.LoadAsync(c, null, db, table, ct);
             var sql = new StringBuilder($"SELECT * FROM {Db.Q(db, table)}");
@@ -231,6 +231,9 @@ public static class Api
             if (!string.IsNullOrEmpty(order) && m.Columns.Any(x => x.Name == order))
                 sql.Append(" ORDER BY ").Append(Db.Q(order)).Append(dir == "desc" ? " DESC" : " ASC");
             if (limit is > 0) sql.Append($" LIMIT {Math.Max(0, offset ?? 0)}, {limit}");
+            // The filter is SQL text and metadata connections aren't READ ONLY on the server: "1); DELETE ..." must not get through.
+            if (ses.Profile.ReadOnly && !string.IsNullOrWhiteSpace(where) && ReadOnlyGuard.Check(sql.ToString()) is { } rejected)
+                throw new ApiException(rejected);
             var rs = await Db.QueryAsync(c, log, sql.ToString(), ct);
             var byName = m.Columns.ToDictionary(x => x.Name, StringComparer.OrdinalIgnoreCase);
             var cols = rs.Columns.Select(x =>

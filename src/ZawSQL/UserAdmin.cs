@@ -173,8 +173,11 @@ public static class UserAdmin
             }
             catch (MySqlException ex)
             {
-                log.Add($"/* SQL Error ({ex.Number}): {ex.Message} */");
-                return new { executed, error = new { statement = executed, message = ex.Message, code = ex.Number } };
+                // A syntax error quotes the statement text near the problem, which can be the password.
+                var message = string.IsNullOrEmpty(req.Password) ? ex.Message
+                    : ex.Message.Replace(SqlLiteral.Quote(req.Password)[1..^1], "***").Replace(req.Password, "***");
+                log.Add($"/* SQL Error ({ex.Number}): {message} */");
+                return new { executed, error = new { statement = executed, message, code = ex.Number } };
             }
             executed++;
         }

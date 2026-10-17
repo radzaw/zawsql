@@ -21,6 +21,10 @@ public sealed class UpdaterTests : IDisposable
     [InlineData("1.2", "1.2.0", 0)]
     [InlineData("2.0.0-beta.1", "2.0.0", -1)]
     [InlineData("2.0.0-beta.2", "2.0.0-beta.1", 1)]
+    [InlineData("2.0.0-beta.10", "2.0.0-beta.9", 1)]
+    [InlineData("2.0.0-rc.1", "2.0.0-beta.3", 1)]
+    [InlineData("2.0.0-beta", "2.0.0-beta.1", -1)]
+    [InlineData("2.0.0-1", "2.0.0-alpha", -1)]
     [InlineData("1.0.0", "1.0.1", -1)]
     public void Versions_compare_numerically(string a, string b, int expected) => Assert.Equal(expected, Math.Sign(Updater.CompareVersions(a, b)));
 
@@ -74,9 +78,12 @@ public sealed class UpdaterTests : IDisposable
     public void The_new_process_takes_over_port_token_and_mode()
     {
         var o = AppOptions.Parse(["--no-browser", "--token", "token-0123456789abcdef", "--config", dir, "--browser", "/opt/chrome"]);
-        Assert.Equal(["--port", "5300", "--token", "token-0123456789abcdef", "--config", dir, "--attach", "--no-browser", "--browser", "/opt/chrome"], Updater.RestartArguments(o, 5300));
+        Assert.Equal(["--port", "5300", "--config", dir, "--attach", "--no-browser", "--browser", "/opt/chrome"], Updater.RestartArguments(o, 5300));
         var windowed = AppOptions.Parse(["--token", "token-0123456789abcdef", "--config", dir]);
-        Assert.Equal(["--port", "1", "--token", "token-0123456789abcdef", "--config", dir, "--attach"], Updater.RestartArguments(windowed, 1));
+        Assert.Equal(["--port", "1", "--config", dir, "--attach"], Updater.RestartArguments(windowed, 1));
+        // The token isn't on the command line (other users can read it there): it comes through the environment.
+        Assert.Equal("token-0123456789abcdef", AppOptions.Parse(["--config", dir], "token-0123456789abcdef").Token);
+        Assert.Throws<ArgumentException>(() => AppOptions.Parse([], "short"));
         var browser = AppOptions.Parse(["--use-browser", "--keep-alive", "--token", "token-0123456789abcdef", "--config", dir]);
         Assert.Equal(["--keep-alive", "--use-browser"], Updater.RestartArguments(browser, 1)[^2..]);
         // A native window that couldn't open fell back to a browser window: the new version uses one too.

@@ -52,6 +52,8 @@ public static partial class Explainer
     {
         var stmt = Statement(sql);
         if (stmt.Length == 0) throw new ApiException("There is no statement to explain.");
+        // "EXPLAIN SELECT 1; DROP TABLE t" would run the DROP.
+        if (ReadOnlyGuard.HasSeveralStatements(stmt)) throw new ApiException("Select a single statement to explain.");
         if (!IsExplainable(stmt)) throw new ApiException("Only SELECT, INSERT, UPDATE, DELETE, REPLACE and TABLE statements can be explained.");
         if (analyze && !CanAnalyze(stmt)) throw new ApiException("Analyze runs the statement to measure it, so it is only available for SELECT statements.");
         var mariaDb = c.ServerVersion.Contains("MariaDB", StringComparison.OrdinalIgnoreCase);

@@ -18,6 +18,7 @@ export class DataView {
     this.cols = [];
     this.sort = null;
     this.where = '';
+    this.searched = null; // the quick search behind the current filter: { q, where }
     this.showAll = false;
 
     this.info = h('span', { class: 'data-info' });
@@ -93,6 +94,7 @@ export class DataView {
       this.showAll = false;
       this.whereInput.value = v.where;
       this.search.value = v.search;
+      this.searched = v.search && v.where ? { q: v.search, where: v.where } : null;
       if (v.where) this.filterBox.style.display = '';
       this.cols = [];
       this.meta = null;
@@ -191,8 +193,10 @@ export class DataView {
     const q = this.search.value;
     if (!q) return this.setFilter('');
     const like = sqlStr('%' + q.replace(/[\\%_]/g, m => '\\' + m) + '%');
+    const where = this.cols.map(c => `${qi(c.name)} LIKE ${like}`).join(' OR ');
+    this.searched = { q, where };
     // A generated search over every column would only clutter the history.
-    this.setFilter(this.cols.map(c => `${qi(c.name)} LIKE ${like}`).join(' OR '), { record: false });
+    this.setFilter(where, { record: false });
   }
 
   // ---------- remembered sorting and filter, filter history ----------
@@ -204,7 +208,9 @@ export class DataView {
     const key = this.viewKey;
     if (!key) return;
     const prev = this.app.state.dataViews;
-    const next = rememberView(prev, key, { sort: this.sort, where: this.where, search: this.search.value });
+    // The search text only while its filter is the one applied (not typed without Enter, not replaced since).
+    const search = this.where && this.searched?.where === this.where ? this.searched.q : '';
+    const next = rememberView(prev, key, { sort: this.sort, where: this.where, search });
     if (JSON.stringify(next) === JSON.stringify(prev ?? {})) return;
     this.app.state.dataViews = next;
     this.app.saveStateSoon();

@@ -189,10 +189,12 @@ class App {
       window.external.receiveMessage(m => { if (m === 'close-request') this.closeNativeWindow(); });
       window.external.sendMessage('ready');
       // Links to web pages (release notes) open in the default browser, not in a web view popup.
-      document.addEventListener('click', e => {
+      const external = e => {
         const a = e.target.closest?.('a[target=_blank]');
         if (a && /^https?:/.test(a.href)) { e.preventDefault(); openExternal(a.href); }
-      });
+      };
+      document.addEventListener('click', external);
+      document.addEventListener('auxclick', external); // a middle click would open a web view popup too
     }
 
     startHeartbeat();
@@ -490,13 +492,19 @@ class App {
 
   /** The native window's close button: save, and ask first when closing would roll back open transactions. */
   async closeNativeWindow() {
-    const open = this.queryViews.filter(v => v.tx?.open).length;
-    if (open && !(await confirmDlg(`${open === 1 ? 'A query tab has a transaction' : `${open} query tabs have transactions`} in progress. Closing ZawSQL rolls ${open === 1 ? 'it' : 'them'} back.`, { ok: 'Roll back and close' }))) {
-      window.external.sendMessage('close-cancel');
-      return;
+    if (this.closing) return; // the close button clicked again while asking
+    this.closing = true;
+    try {
+      const open = this.queryViews.filter(v => v.tx?.open).length;
+      if (open && !(await confirmDlg(`${open === 1 ? 'A query tab has a transaction' : `${open} query tabs have transactions`} in progress. Closing ZawSQL rolls ${open === 1 ? 'it' : 'them'} back.`, { ok: 'Roll back and close', danger: true }))) {
+        window.external.sendMessage('close-cancel');
+        return;
+      }
+      await this.saveState();
+      window.external.sendMessage('close');
+    } finally {
+      this.closing = false;
     }
-    await this.saveState();
-    window.external.sendMessage('close');
   }
 
   async exit() {

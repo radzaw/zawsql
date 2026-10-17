@@ -94,6 +94,38 @@ public static class ReadOnlyGuard
         return null;
     }
 
+    /// <summary>
+    /// Whether the text holds a second statement: anything but whitespace and comments after a ";" outside quotes and
+    /// comments. Text that gets a prefix (EXPLAIN …) must be one statement, or the rest would simply run.
+    /// </summary>
+    public static bool HasSeveralStatements(string sql)
+    {
+        var n = sql.Length;
+        var i = 0;
+        var ended = false;
+        while (i < n)
+        {
+            var c = sql[i];
+            if (c == '#' || (c == '-' && i + 1 < n && sql[i + 1] == '-' && (i + 2 >= n || char.IsWhiteSpace(sql[i + 2]))))
+            {
+                var e = sql.IndexOf('\n', i);
+                i = e < 0 ? n : e;
+                continue;
+            }
+            if (c == '/' && i + 1 < n && sql[i + 1] == '*' && (i + 2 >= n || sql[i + 2] != '!'))
+            {
+                var e = sql.IndexOf("*/", i + 2, StringComparison.Ordinal);
+                i = e < 0 ? n : e + 2;
+                continue;
+            }
+            if (char.IsWhiteSpace(c)) { i++; continue; }
+            if (c == ';') { ended = true; i++; continue; }
+            if (ended) return true;
+            i = c is '\'' or '"' or '`' ? SkipQuoted(sql, i, c) : i + 1;
+        }
+        return false;
+    }
+
     static int SkipQuoted(string s, int i, char q)
     {
         i++;

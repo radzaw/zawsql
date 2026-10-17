@@ -65,11 +65,13 @@ public sealed class SqlDumper(MySqlConnection c, TextWriter w)
 
         if (Structure)
         {
-            foreach (var v in views)
+            var code = new Dictionary<string, string?>();
+            foreach (var v in views) code[v] = await TableMeta.ShowCreateAsync(c, null, db, "VIEW", v, ct);
+            foreach (var v in DependencyOrder(code))
             {
                 await w.WriteAsync($"-- Structure of view {Db.Q(v)}\n");
                 if (DropObjects) await w.WriteAsync($"DROP VIEW IF EXISTS {Db.Q(v)};\n");
-                await w.WriteAsync($"{await TableMeta.ShowCreateAsync(c, null, db, "VIEW", v, ct)};\n\n");
+                await w.WriteAsync($"{code[v]};\n\n");
             }
             if (filter == null) await DumpProgramsAsync(db, ct);
         }
@@ -82,6 +84,29 @@ public sealed class SqlDumper(MySqlConnection c, TextWriter w)
 
             """);
         await w.FlushAsync(ct);
+    }
+
+    /// <summary>
+    /// Views in an order that imports: one that selects from another view comes after it (by name, otherwise
+    /// alphabetical). A view's code names the others quoted (`v`); a column of the same name only adds an
+    /// unneeded constraint, and a cycle is broken where it is found.
+    /// </summary>
+    public static List<string> DependencyOrder(IReadOnlyDictionary<string, string?> views)
+    {
+        var order = new List<string>();
+        var state = new Dictionary<string, bool>(); // false: being visited, true: done
+        void Visit(string v)
+        {
+            if (state.ContainsKey(v)) return;
+            state[v] = false;
+            var code = views[v] ?? "";
+            foreach (var other in views.Keys.Order(StringComparer.Ordinal))
+                if (other != v && code.Contains(Db.Q(other), StringComparison.Ordinal)) Visit(other);
+            state[v] = true;
+            order.Add(v);
+        }
+        foreach (var v in views.Keys.Order(StringComparer.Ordinal)) Visit(v);
+        return order;
     }
 
     async Task DumpProgramsAsync(string db, CancellationToken ct)

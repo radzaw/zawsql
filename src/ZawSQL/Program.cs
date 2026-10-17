@@ -46,6 +46,10 @@ static class Program
         Console.WriteLine($"ZawSQL is running at {url}");
         Console.WriteLine($"Configuration directory: {opts.ConfigDir}");
 
+        // In every mode: windows that stop pinging lose their manual-commit transactions.
+        var heartbeat = app.Services.GetRequiredService<Heartbeat>();
+        _ = heartbeat.MonitorAsync(app.Lifetime);
+
         var native = !opts.NoBrowser && !opts.UseBrowser;
         if (native)
         {
@@ -62,8 +66,7 @@ static class Program
         {
             // After an update a browser window reloads by itself; a native window closed with the previous process.
             if (!opts.Attach || native) BrowserLauncher.Launch(url, opts, app.Logger);
-            if (!opts.KeepAlive)
-                _ = app.Services.GetRequiredService<Heartbeat>().MonitorAsync(app.Lifetime);
+            heartbeat.ExitWhenClosed = !opts.KeepAlive;
         }
 
         app.WaitForShutdownAsync().GetAwaiter().GetResult();

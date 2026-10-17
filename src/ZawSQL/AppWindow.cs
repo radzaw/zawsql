@@ -13,14 +13,13 @@ public sealed class AppWindow(AppOptions opts, ILogger<AppWindow> log)
 {
     PhotinoWindow? window;
     volatile bool open;
+    // Set once the window exists: a failure after that is a real error, not a missing web view.
+    volatile bool created;
     // Closing asks the page first (it saves its state and asks about open transactions), unless this is set.
     volatile bool closeAllowed;
     // The page said it handles close requests; until then (still loading, or broken) the window just closes.
     volatile bool pageReady;
     DateTime closeAskedAt;
-
-    /// <summary>True while the native window is up.</summary>
-    public bool IsOpen => open;
 
     /// <summary>
     /// Shows the window and blocks until it's closed. Returns false, having shown nothing, when the platform's
@@ -49,7 +48,13 @@ public sealed class AppWindow(AppOptions opts, ILogger<AppWindow> log)
             if (IconFile() is { } icon) w.SetIconFile(icon);
             w.WindowCreated += (_, _) =>
             {
-                open = true;
+                created = open = true;
+                // The host began stopping before the window existed (Ctrl+C during startup): don't outlive it.
+                if (closeAllowed)
+                {
+                    Close();
+                    return;
+                }
                 // Smaller screens: start maximized rather than hanging off the edge.
                 try
                 {
@@ -68,7 +73,7 @@ public sealed class AppWindow(AppOptions opts, ILogger<AppWindow> log)
             w.WaitForClose();
             return true;
         }
-        catch (Exception ex) when (!open)
+        catch (Exception ex) when (!created)
         {
             log.LogWarning("The native window is not available ({Message}); using a browser window.", Reason(ex));
             return false;

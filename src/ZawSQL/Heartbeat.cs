@@ -31,6 +31,12 @@ public sealed class Heartbeat
         if (!string.IsNullOrEmpty(page) && pages.TryRemove(page, out _)) PageGone?.Invoke(page);
     }
 
+    /// <summary>
+    /// Ends the process once no window is left (a browser window without --keep-alive). Without it, windows that
+    /// stop pinging are still dropped, so their transactions don't hold locks until the process ends.
+    /// </summary>
+    public bool ExitWhenClosed { get; set; }
+
     public async Task MonitorAsync(IHostApplicationLifetime life)
     {
         DateTime? emptySince = null;
@@ -41,6 +47,7 @@ public sealed class Heartbeat
             foreach (var (id, last) in pages)
                 if (now - last > PageTimeout && pages.TryRemove(id, out _)) PageGone?.Invoke(id);
 
+            if (!ExitWhenClosed) continue;
             if (!everConnected)
             {
                 if (now - started > StartupTimeout) life.StopApplication();
