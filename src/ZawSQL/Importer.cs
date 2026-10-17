@@ -79,28 +79,36 @@ public sealed class ImportFile
     public long Size { get; init; }
 }
 
-/// <summary>Uploaded files and running import jobs. Files live in a per-process temp folder removed on exit.</summary>
+/// <summary>
+/// Uploaded files and running import jobs. Files live in a per-process temp folder removed on exit: a new, randomly
+/// named one that only this user can open (on Linux /tmp is shared, and a fixed name could be taken over).
+/// </summary>
 public sealed class ImportStore : IAsyncDisposable
 {
-    readonly string dir = Path.Combine(Path.GetTempPath(), "zawsql-import", Environment.ProcessId.ToString(CultureInfo.InvariantCulture));
+    const string Prefix = "zawsql-import-";
+    readonly string dir = Directory.CreateTempSubdirectory(Prefix).FullName;
     readonly ConcurrentDictionary<string, ImportFile> files = new();
     readonly ConcurrentDictionary<string, ImportJob> jobs = new();
 
     public ImportStore()
     {
-        Directory.CreateDirectory(dir);
-        // Folders left behind by processes that didn't exit cleanly.
-        try
+        // Folders left behind by processes that didn't exit cleanly (other users' ones can't be removed).
+        foreach (var d in Directory.GetDirectories(Path.GetTempPath(), Prefix + "*"))
         {
-            foreach (var d in Directory.GetDirectories(Path.GetDirectoryName(dir)!))
-                if (d != dir && Directory.GetLastWriteTimeUtc(d) < DateTime.UtcNow.AddDays(-1)) Directory.Delete(d, true);
+            try { if (d != dir && Directory.GetLastWriteTimeUtc(d) < DateTime.UtcNow.AddDays(-1)) Directory.Delete(d, true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
         }
-        catch (IOException) { }
-        catch (UnauthorizedAccessException) { }
     }
 
     public async Task<ImportFile> SaveAsync(Stream body, string name, CancellationToken ct)
     {
+        // Another process's cleanup may have taken the folder after a day without imports.
+        if (!Directory.Exists(dir))
+        {
+            if (OperatingSystem.IsWindows()) Directory.CreateDirectory(dir);
+            else Directory.CreateDirectory(dir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
         var id = Guid.NewGuid().ToString("n");
         var path = Path.Combine(dir, id);
         await using (var fs = File.Create(path)) await body.CopyToAsync(fs, ct);
@@ -930,8 +938,9 @@ public sealed class ImportJob : IAsyncDisposable
             log?.Finish(line);
             return true;
         }
-        catch (MySqlException) when (!ct.IsCancellationRequested && Conn.State == System.Data.ConnectionState.Open)
+        catch (MySqlException ex) when (!ct.IsCancellationRequested && Conn.State == System.Data.ConnectionState.Open)
         {
+            if (TransactionLost(ex, batch[0].row, errors)) return false;
             // Find the rows that fail, one at a time.
             foreach (var (row, tuple) in batch)
             {
@@ -939,15 +948,28 @@ public sealed class ImportJob : IAsyncDisposable
                 {
                     await ExecAsync(Head + tuple + Tail, row, ct);
                 }
-                catch (MySqlException ex) when (!ct.IsCancellationRequested && Conn.State == System.Data.ConnectionState.Open)
+                catch (MySqlException rowEx) when (!ct.IsCancellationRequested && Conn.State == System.Data.ConnectionState.Open)
                 {
+                    if (TransactionLost(rowEx, row, errors)) return false;
                     errorCount++;
-                    if (errors.Count < 100) errors.Add(new { row, message = ex.Message, code = ex.Number });
+                    if (errors.Count < 100) errors.Add(new { row, message = rowEx.Message, code = rowEx.Number });
                     if (Options.StopOnError) return false;
                 }
             }
             return true;
         }
+    }
+
+    /// <summary>
+    /// A deadlock makes the server roll back the whole transaction and end it: carrying on would commit the rest
+    /// row by row, without what was imported before. The import stops instead (and reports the rollback).
+    /// </summary>
+    bool TransactionLost(MySqlException ex, long row, List<object> errors)
+    {
+        if (!inTransaction || ex.Number != 1213) return false; // ER_LOCK_DEADLOCK
+        errorCount++;
+        errors.Add(new { row, message = ex.Message + " The server rolled back the import's transaction.", code = ex.Number });
+        return true;
     }
 
     async Task ExecAsync(string sql, long firstRow, CancellationToken ct)

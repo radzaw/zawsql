@@ -155,8 +155,9 @@ public static class MultiRun
         {
             res.Error = "The SSH host key isn't trusted yet; connect it once from the session manager to confirm it.";
         }
-        catch (Exception ex) when (ex is MySqlException or ApiException or IOException or InvalidOperationException or TimeoutException or Renci.SshNet.Common.SshException)
+        catch (Exception ex)
         {
+            // Anything else too: one server's failure must not lose the other servers' results.
             res.Error = ex.Message;
         }
         finally

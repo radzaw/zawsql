@@ -90,6 +90,9 @@ public static class BrowserLauncher
     {
         foreach (var dir in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
         {
+            // A relative entry ("." and the like) would find a planted "google-chrome" in the current folder; the
+            // browser gets the URL with the API token.
+            if (!Path.IsPathFullyQualified(dir)) continue;
             var p = Path.Combine(dir, name);
             if (File.Exists(p)) return p;
         }
