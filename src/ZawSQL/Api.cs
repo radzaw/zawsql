@@ -520,6 +520,10 @@ public static class Api
         {
             var ct = ctx.RequestAborted;
             var ses = cm.Get(sid);
+            // A JSON array: object names may contain commas and edge spaces.
+            string[]? only;
+            try { only = tables == null ? null : JsonSerializer.Deserialize<string[]>(tables); }
+            catch (JsonException) { throw new ApiException("Invalid object list."); }
             var fileName = Regex.Replace(db, @"[^\w\-.]+", "_") + ".sql";
             ctx.Response.ContentType = "application/sql; charset=utf-8";
             ctx.Response.Headers.ContentDisposition = $"attachment; filename=\"{fileName}\"";
@@ -532,7 +536,6 @@ public static class Api
                 DropObjects = drop ?? true,
                 CreateDatabase = createDb ?? false,
             };
-            var only = tables?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             try
             {
                 await dumper.RunAsync(db, only, ct);

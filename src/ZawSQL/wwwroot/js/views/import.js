@@ -33,7 +33,7 @@ export async function importDialog(app, sid, db, table = null) {
     optsTouched: { decimalComma: false, dateOrder: false },
     job: null, running: false, result: null,
   };
-  let ctx;
+  let ctx, closed = false, previewSeq = 0;
   const steps = h('div', { class: 'imp-steps' });
   const content = h('div', { class: 'imp-content' });
   const left = h('div', { class: 'left' }), right = h('div', { class: 'right' });
@@ -55,7 +55,10 @@ export async function importDialog(app, sid, db, table = null) {
     st.preview = null;
     fileInfo.replaceChildren(h('span', null, `Uploading ${f.name} (${fmtBytes(f.size)})…`), h('div', { class: 'progress' }, uploadBar));
     try {
-      st.file = await upload(`/import/upload?name=${encodeURIComponent(f.name)}`, f, { onProgress: p => { uploadBar.style.width = p * 100 + '%'; } });
+      const file = await upload(`/import/upload?name=${encodeURIComponent(f.name)}`, f, { onProgress: p => { uploadBar.style.width = p * 100 + '%'; } });
+      // Closed while uploading: nothing will delete this copy later.
+      if (closed) { del(`/import/${file.id}`, { quiet: true }).catch(() => {}); return; }
+      st.file = file;
     } catch (e) {
       fileInfo.textContent = '';
       return app.showError(e);
@@ -70,10 +73,14 @@ export async function importDialog(app, sid, db, table = null) {
   async function loadPreview(again = true) {
     if (!st.file) return;
     previewInfo.textContent = 'Reading…';
+    // Only the latest request counts: an earlier one (other delimiter, other file) can answer after it.
+    const seq = ++previewSeq;
     try {
-      st.preview = await post('/import/preview', {
+      const preview = await post('/import/preview', {
         fileId: st.file.id, source: st.source, decimalComma: st.opts.decimalComma, dateOrder: st.opts.dateOrder || null,
       }, { quiet: true });
+      if (seq !== previewSeq) return;
+      st.preview = preview;
       st.previewError = '';
       // Adopt the suggested decimal separator and date order (unless chosen by hand), re-reading once so the
       // guessed column types use them.
@@ -84,6 +91,7 @@ export async function importDialog(app, sid, db, table = null) {
       if (changed && again) return loadPreview(false);
       resetColumns();
     } catch (e) {
+      if (seq !== previewSeq) return;
       st.preview = null;
       st.previewError = e.message;
     }
@@ -259,13 +267,19 @@ export async function importDialog(app, sid, db, table = null) {
     }
   }
 
+  let starting = false;
   async function runImport() {
+    // The button stays clickable during the dry run and the confirmation; a second click must not import twice.
+    if (starting || st.running) return;
     let payload;
     try { payload = targetPayload(); } catch (e) { return app.showError(e); }
-    let preview;
-    try { preview = await post(`/s/${sid}/import/start`, { ...payload, dryRun: true }, { quiet: true }); } catch (e) { return app.showError(e); }
-    const stmts = [preview.createSql, preview.truncateSql, preview.insertSql].filter(Boolean);
-    if (!(await app.confirmChanges(sid, { action: `Import ${st.file.name} into ${st.db}.${payload.table}`, statements: stmts }))) return;
+    starting = true;
+    try {
+      let preview;
+      try { preview = await post(`/s/${sid}/import/start`, { ...payload, dryRun: true }, { quiet: true }); } catch (e) { return app.showError(e); }
+      const stmts = [preview.createSql, preview.truncateSql, preview.insertSql].filter(Boolean);
+      if (!(await app.confirmChanges(sid, { action: `Import ${st.file.name} into ${st.db}.${payload.table}`, statements: stmts })) || closed) return;
+    } finally { starting = false; }
 
     st.step = 4;
     st.running = true;
@@ -371,6 +385,7 @@ export async function importDialog(app, sid, db, table = null) {
   });
   await done;
   // Closing the wizard stops a running import (rolled back when all-or-nothing) and removes the uploaded copy.
+  closed = true;
   cancelRequested = true;
   if (st.job) await post(`/s/${sid}/import/cancel`, { jobId: st.job }, { quiet: true }).catch(() => {});
   if (st.file) del(`/import/${st.file.id}`, { quiet: true }).catch(() => {});

@@ -79,7 +79,8 @@ const identList = text => splitTopLevel(text).map(x => qi(x.replace(/^`|`$/g, ''
 
 function fkDef(f) {
   const [refDb, refTable] = f.refTable.includes('.') ? f.refTable.split('.', 2) : [null, f.refTable];
-  const ref = (refDb ? qi(refDb) + '.' : '') + qi(refTable.replace(/^`|`$/g, ''));
+  const unq = s => s.trim().replace(/^`|`$/g, '');
+  const ref = (refDb ? qi(unq(refDb)) + '.' : '') + qi(unq(refTable));
   let s = (f.name ? `CONSTRAINT ${qi(f.name)} ` : '') + `FOREIGN KEY (${identList(f.cols)}) REFERENCES ${ref} (${identList(f.refCols)})`;
   if (f.onUpdate) s += ' ON UPDATE ' + f.onUpdate;
   if (f.onDelete) s += ' ON DELETE ' + f.onDelete;
@@ -590,6 +591,19 @@ export class TableView {
     try {
       await this.app.exec(m.sid, stmts, m.db);
     } catch (e) {
+      if (e.statement > 0) {
+        // DDL commits as it goes: the statements before the failed one are applied, so the model no longer matches the
+        // table (saving again would e.g. drop the same foreign keys twice). Re-read it.
+        this.app.showError(new Error(`${e.message}\n\nThe first ${e.statement} of ${stmts.length} statements were applied; the editor shows the table as it is now. The statements are in the SQL log.`));
+        this.app.tabs.setModified('table', false);
+        this.m = null;
+        this.key = null;
+        await this.app.refreshDb(m.sid, m.db);
+        const renamed = m.opts.name !== m.origOpts.name && stmts.slice(0, e.statement).some(s => s.includes('\n\tRENAME TO '));
+        if (renamed) await this.app.selectObject(m.sid, m.db, m.opts.name, 'table', { tab: 'table' });
+        this.load();
+        return;
+      }
       this.app.showError(e);
       return;
     }
@@ -639,6 +653,18 @@ export class TableView {
     try {
       await this.app.exec(m.sid, stmts, m.db);
     } catch (e) {
+      // The DROP went through but the new code was refused: put the previous object back so a typo doesn't lose it.
+      if (stmts.length > 1 && e.statement === 1) {
+        let restored = false;
+        try {
+          await this.app.exec(m.sid, [m.origCode.trim().replace(/;\s*$/, '')], m.db);
+          restored = true;
+        } catch { /* reported below */ }
+        await this.app.refreshDb(m.sid, m.db);
+        this.app.showError(new Error(`${e.message}\n\n${restored ? `The previous ${m.type} was restored.`
+          : `The ${m.type} was dropped and the previous version could not be re-created; Discard puts its code back in the editor.`}`));
+        return;
+      }
       this.app.showError(e);
       return;
     }

@@ -145,7 +145,7 @@ public class EditAndQueryTests(TestDatabase t)
         Assert.Contains("top_customers", full);
         Assert.DoesNotContain($"`{t.Db}`.", full); // portable: no hard-coded schema names
 
-        var tablesOnly = await t.App.Http.GetStringAsync($"/api/s/{t.Sid}/dump?db={t.Db}&tables=customers,orders,logs&token={TestApp.Token}");
+        var tablesOnly = await t.App.Http.GetStringAsync($"/api/s/{t.Sid}/dump?db={t.Db}&tables={Uri.EscapeDataString("[\"customers\",\"orders\",\"logs\"]")}&token={TestApp.Token}");
         Assert.DoesNotContain("DELIMITER", tablesOnly);
         var copy = t.Db + "_copy";
         t.CleanupLater("db:" + copy);

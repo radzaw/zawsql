@@ -125,8 +125,14 @@ export async function maintenanceDialog(app, sid, db, preselected = null) {
     const names = tables.map(t => t.name).filter(n => selected.has(n));
     if (!names.length || running) return false;
     const def = OPS.find(o => o.id === op);
-    if (!def.readOnly && !(await app.confirmChanges(sid, { action: `${def.label} ${names.length} table(s) in ${db}`, statements: [maintenanceSql(op, db, names, options)] }))) return false;
+    // Taken before the confirmation: Execute clicked again while it is open must not start a second run.
     running = true;
+    update();
+    if (!def.readOnly && !(await app.confirmChanges(sid, { action: `${def.label} ${names.length} table(s) in ${db}`, statements: [maintenanceSql(op, db, names, options)] }))) {
+      running = false;
+      update();
+      return false;
+    }
     stopRequested = false;
     update();
     results.length = 0;

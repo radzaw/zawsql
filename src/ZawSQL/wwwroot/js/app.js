@@ -6,7 +6,7 @@ import { Tree } from './tree.js';
 import { LogPanel } from './log.js';
 import { KEYWORDS, FUNCTIONS } from './editor.js';
 import { isReadOnlyStatement, lacksWhere } from './sqlcheck.js';
-import { contextMenu, closeMenus, menuIsOpen, alertError, confirmDlg, promptDlg, modal } from './dialogs.js';
+import { contextMenu, closeMenus, menuIsOpen, alertError, confirmDlg, promptDlg, modal, modalIsOpen } from './dialogs.js';
 import { HostView } from './views/host.js';
 import { DatabaseView } from './views/database.js';
 import { TableView } from './views/table.js';
@@ -196,6 +196,15 @@ class App {
       document.addEventListener('click', external);
       document.addEventListener('auxclick', external); // a middle click would open a web view popup too
     }
+    // A file dropped where nothing takes it would be opened by the browser, navigating away from the app (and its
+    // unsaved tabs). Places that take files (the import wizard) handle the event first.
+    const refuseFiles = e => {
+      if (e.defaultPrevented || !e.dataTransfer?.types?.includes('Files')) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'none';
+    };
+    window.addEventListener('dragover', refuseFiles);
+    window.addEventListener('drop', refuseFiles);
 
     startHeartbeat();
     setTimeout(() => autoCheckUpdates(this), 15_000);
@@ -421,6 +430,12 @@ class App {
 
   globalKey(e) {
     const ctrl = e.ctrlKey || e.metaKey;
+    // Behind a dialog the shortcuts would act on the page it is about (F9 running again under its confirmation,
+    // Ctrl+W closing the tab it asks about); only the browser's own reload / save stay blocked.
+    if (modalIsOpen()) {
+      if (e.key === 'F5' || (ctrl && ['r', 's'].includes(e.key.toLowerCase()))) e.preventDefault();
+      return;
+    }
     if (e.key === 'F5' || (ctrl && e.key.toLowerCase() === 'r')) {
       e.preventDefault();
       this.refresh();
@@ -525,7 +540,7 @@ class App {
     const r = await post(`/s/${sid}/exec`, { statements, database: database || null, maxRows: 0, stopOnError: true });
     if (r.errors?.length) {
       const er = r.errors[0];
-      throw new ApiError(er.code ? `SQL Error (${er.code}): ${er.message}` : er.message, er.code);
+      throw Object.assign(new ApiError(er.code ? `SQL Error (${er.code}): ${er.message}` : er.message, er.code), { statement: er.statement });
     }
     return r;
   }

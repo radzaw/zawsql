@@ -97,6 +97,8 @@ export function modal({ title, body, buttons = [{ label: 'OK', value: true, prim
   });
 }
 
+export const modalIsOpen = () => stack.length > 0;
+
 function messageBody(kind, msg) {
   return h('div', { class: 'msgbox' }, h('span', { class: 'msgbox-ic', html: icon(kind).replace('width="16" height="16"', 'width="32" height="32"') }), h('div', { class: 'msgbox-text' }, msg));
 }

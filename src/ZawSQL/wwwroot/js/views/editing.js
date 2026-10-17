@@ -134,23 +134,34 @@ export class RowEditor {
     const idx = this.grid.selectedRowIndexes();
     if (!idx.length) return;
     if (!(await confirmDlg(this.app.prodWarn(t.sid) + `Delete ${idx.length} selected row(s) from ${t.table}?`, { ok: 'Delete', danger: true, kind: 'warning' }))) return;
-    const ops = idx.map(i => this.rows[i]).filter(r => !r.$new).map(r => ({ op: 'delete', original: this.rowObj(r.$orig || r) }));
-    try {
-      if (ops.length) {
-        await post(`/s/${t.sid}/rows`, { db: t.db, table: t.table, ops, tab: t.tab });
-        this.afterWrite?.();
+    // One row per request: the server deletes them one after the other, so when one fails (changed meanwhile) the
+    // ones before it are gone already, and the grid must drop exactly those.
+    const gone = new Set();
+    let failed = null, wrote = false;
+    for (const row of idx.map(i => this.rows[i])) {
+      if (!row.$new) {
+        try {
+          await post(`/s/${t.sid}/rows`, { db: t.db, table: t.table, ops: [{ op: 'delete', original: this.rowObj(row.$orig || row) }], tab: t.tab });
+          wrote = true;
+        } catch (e) {
+          failed = e;
+          break;
+        }
       }
-    } catch (e) {
-      this.app.showError(e);
-      return;
+      gone.add(row);
     }
-    for (const i of idx.sort((a, b) => b - a)) this.rows.splice(i, 1);
-    this.onRowsChanged();
-    const r = Math.min(idx[idx.length - 1], this.rows.length - 1);
-    this.grid.cur = { r, c: this.grid.cur.c };
-    this.grid.anchor = { ...this.grid.cur };
-    this.refreshGrid();
-    this.app.setStatus(`${idx.length} row(s) deleted.`);
+    if (wrote) this.afterWrite?.();
+    if (gone.size) {
+      const removed = idx.filter(i => gone.has(this.rows[i]));
+      for (const i of removed.sort((a, b) => b - a)) this.rows.splice(i, 1);
+      this.onRowsChanged();
+      const r = Math.min(removed[removed.length - 1], this.rows.length - 1);
+      this.grid.cur = { r, c: this.grid.cur.c };
+      this.grid.anchor = { ...this.grid.cur };
+      this.refreshGrid();
+      this.app.setStatus(`${gone.size} row(s) deleted.`);
+    }
+    if (failed) this.app.showError(gone.size ? new Error(`${failed.message}\n\n${gone.size} of ${idx.length} selected rows were deleted before this one.`) : failed);
   }
 
   setNull() {

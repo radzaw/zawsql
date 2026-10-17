@@ -369,14 +369,14 @@ export class QueryView {
     // :name parameters are asked for first, so the confirmation and the log show the values that run.
     const written = stmts;
     if (this.asking) return;
+    // Until both dialogs are answered: F9 again while the confirmation is open must not ask (and run) a second time.
     this.asking = true;
-    try { stmts = await fillParams(this.app, stmts); } finally { this.asking = false; }
-    if (!stmts) {
-      this.msg.className = 'q-msg';
-      this.msg.textContent = 'Execution cancelled – nothing was run.';
-      return;
-    }
-    if (!(await this.app.confirmChanges(sid, { action: 'Execute SQL', statements: stmts.map(s => s.sql), checkWhere: true }))) {
+    let confirmed = false;
+    try {
+      stmts = await fillParams(this.app, stmts);
+      confirmed = !!stmts && await this.app.confirmChanges(sid, { action: 'Execute SQL', statements: stmts.map(s => s.sql), checkWhere: true });
+    } finally { this.asking = false; }
+    if (!confirmed) {
       this.msg.className = 'q-msg';
       this.msg.textContent = 'Execution cancelled – nothing was run.';
       return;

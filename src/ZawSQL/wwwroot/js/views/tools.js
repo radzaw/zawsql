@@ -442,7 +442,7 @@ export async function exportDumpDialog(app, sid, db, tables = null) {
   const ok = await modal({ title: 'Export database as SQL', width: 480, body, buttons: [{ label: 'Export', value: true, primary: true }, { label: 'Cancel', value: false }] });
   if (!ok) return;
   const url = urlWithToken(`/s/${sid}/dump`, {
-    db, tables: tables?.join(','), structure: String(structure.checked), data: String(data.checked), drop: String(drop.checked), createDb: String(createDb.checked),
+    db, tables: tables?.length ? JSON.stringify(tables) : null, structure: String(structure.checked), data: String(data.checked), drop: String(drop.checked), createDb: String(createDb.checked),
   });
   const a = h('a', { href: url, download: `${db}.sql` });
   document.body.append(a);
@@ -499,17 +499,18 @@ export async function runSqlFile(app) {
         size += stmts[i].sql.length;
         i++;
       }
+      const first = i - chunk.length;
       const r = await post(`/s/${sid}/exec`, { statements: chunk, database: curDb, maxRows: 0, stopOnError: !cont.checked }, { quiet: true });
       curDb = r.database || curDb;
       done += r.executed;
       errors += r.errors.length;
-      for (const er of r.errors) app.log.error(`Statement ${done + 1}: (${er.code}) ${er.message}`);
+      for (const er of r.errors) app.log.error(`Statement ${fmtNum(first + er.statement + 1)}: (${er.code}) ${er.message}`);
       label.textContent = `${fmtNum(i)} of ${fmtNum(stmts.length)} statements, ${errors} error(s)`;
       bar.style.width = (i / stmts.length) * 100 + '%';
       if (r.errors.length && !cont.checked) {
         const er = r.errors[0];
         closeDlg();
-        await alertError(`SQL Error (${er.code}): ${er.message}\n\nin statement:\n${chunk[er.statement].slice(0, 500)}`);
+        await alertError(`SQL Error (${er.code}): ${er.message}\n\nin statement ${fmtNum(first + er.statement + 1)} of ${fmtNum(stmts.length)}:\n${chunk[er.statement].slice(0, 500)}`);
         break;
       }
     }
