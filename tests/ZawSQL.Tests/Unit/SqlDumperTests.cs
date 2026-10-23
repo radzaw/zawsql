@@ -28,4 +28,13 @@ public class SqlDumperTests
         Assert.Equal(2, order.Count);
         Assert.Equal(["x", "y"], order.Order());
     }
+
+    [Fact]
+    public void Names_in_comment_lines_cannot_start_a_new_line()
+    {
+        // `t\nDROP DATABASE prod; -- ` is a valid table name; in a "-- " comment it would run when the script is imported.
+        Assert.Equal("-- Data of table `t DROP DATABASE prod; -- `", "-- Data of table " + SqlDumper.Line("`t\nDROP DATABASE prod; -- `"));
+        Assert.Equal("a b c", SqlDumper.Line("a\r\nb\rc"));
+        Assert.Equal("", SqlDumper.Line(null));
+    }
 }

@@ -1,9 +1,13 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
 namespace ZawSQL;
+
+/// <summary>The library was saved (by another window) since this copy of it was loaded.</summary>
+public sealed class LibraryConflictException() : Exception("The library was changed in another window.");
 
 /// <summary>A saved connection profile, as shown in the session manager.</summary>
 public sealed class SessionProfile
@@ -193,16 +197,31 @@ public sealed class SessionStore
         }
     }
 
-    /// <summary>Replaces the library; the previous version is kept as library.json.bak.</summary>
-    public void SaveLibrary(JsonElement library)
+    /// <summary>
+    /// Replaces the library; the previous version is kept as library.json.bak. Each save numbers the library
+    /// ("revision"). A document that names the revision it was based on is only saved over that revision: another
+    /// window may have saved since, and its changes would be lost (<see cref="LibraryConflictException"/>).
+    /// Returns the new revision.
+    /// </summary>
+    public long SaveLibrary(JsonElement library)
     {
         if (!IsLibrary(library)) throw new ArgumentException("A library needs \"queries\" and \"snippets\" arrays.");
         lock (gate)
         {
+            var current = Revision(LoadLibrary());
+            if (library.TryGetProperty("revision", out var basedOn) && basedOn.ValueKind != JsonValueKind.Null
+                && (!basedOn.TryGetInt64(out var b) || b != current))
+                throw new LibraryConflictException();
+            var doc = JsonNode.Parse(library.GetRawText())!.AsObject();
+            doc["revision"] = current + 1;
             if (File.Exists(libraryFile)) File.Copy(libraryFile, libraryFile + ".bak", true);
-            WriteAtomic(libraryFile, JsonSerializer.Serialize(library, Json));
+            WriteAtomic(libraryFile, doc.ToJsonString(Json));
+            return current + 1;
         }
     }
+
+    static long Revision(JsonElement? library) =>
+        library is { } l && l.TryGetProperty("revision", out var r) && r.TryGetInt64(out var n) ? n : 0;
 
     static bool IsLibrary(JsonElement e) =>
         e.ValueKind == JsonValueKind.Object

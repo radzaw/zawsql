@@ -65,7 +65,8 @@ static class Program
         if (!opts.NoBrowser)
         {
             // After an update a browser window reloads by itself; a native window closed with the previous process.
-            if (!opts.Attach || native) BrowserLauncher.Launch(url, opts, app.Logger);
+            // The browser's command line is readable by other users of the machine: it gets a one-time code, not the token.
+            if (!opts.Attach || native) BrowserLauncher.Launch(AppHost.LaunchUrl(app, opts, oneTime: true), opts, app.Logger);
             heartbeat.ExitWhenClosed = !opts.KeepAlive;
         }
 

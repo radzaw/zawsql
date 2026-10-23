@@ -1,8 +1,9 @@
 // Saved queries and snippets: the library store (library.json on the backend), the side panel shown in
 // query tabs, and the edit dialogs.
-import { h, esc, makeSplitter, pickFile, saveTextFile } from '../util.js';
+import { h, esc, makeSplitter } from '../util.js';
+import { pickFile, saveTextFile } from '../files.js';
 import { icon } from '../icons.js';
-import { get, put } from '../api.js';
+import { get, put, LIBRARY_CONFLICT } from '../api.js';
 import { SqlEditor } from '../editor.js';
 import { modal, contextMenu, confirmDlg, alertError, alertInfo } from '../dialogs.js';
 import {
@@ -19,11 +20,18 @@ export class LibraryStore {
 
   async load() {
     try {
-      this.lib = normalizeLibrary(await get('/library', null, { quiet: true }));
-      this.loaded = true;
+      await this.fetch();
     } catch (e) {
       this.loadError = e;
     }
+  }
+
+  /** Reads the saved library and the revision it was saved as (saves name it, so they never overwrite a newer one). */
+  async fetch() {
+    const raw = await get('/library', null, { quiet: true });
+    this.lib = normalizeLibrary(raw);
+    this.revision = Number(raw?.revision) || 0;
+    this.loaded = true;
   }
 
   get queries() { return this.lib.queries; }
@@ -40,25 +48,32 @@ export class LibraryStore {
   async commit() {
     // A library that failed to load is never written back: that would replace the user's saved queries.
     if (!this.loaded) throw new Error(`The library could not be loaded, so changes are not saved: ${this.loadError?.message ?? ''}`);
-    await put('/library', this.lib, { quiet: true });
+    const r = await put('/library', { ...this.lib, revision: this.revision }, { quiet: true });
+    this.revision = Number(r?.revision) || this.revision + 1;
     for (const fn of this.listeners) fn();
   }
 
   /**
    * Applies fn(lib) and saves. When saving fails the change is undone: otherwise the panel would show a query that
    * isn't saved (and saving it again would clash with its own name), or a later save would write it after all.
+   * When another window saved first, its library is loaded and fn applied to that instead, so neither change is lost.
    */
   async change(fn) {
-    const before = structuredClone(this.lib);
-    const r = fn(this.lib);
-    try {
-      await this.commit();
-    } catch (e) {
-      this.lib = before;
-      for (const l of this.listeners) l();
-      throw e;
+    for (let attempt = 1; ; attempt++) {
+      const before = structuredClone(this.lib);
+      try {
+        const r = fn(this.lib);
+        await this.commit();
+        return r;
+      } catch (e) {
+        this.lib = before;
+        if (e.code === LIBRARY_CONFLICT && attempt < 4) {
+          try { await this.fetch(); continue; } catch { /* report the conflict */ }
+        }
+        for (const l of this.listeners) l();
+        throw e;
+      }
     }
-    return r;
   }
 
   addQuery(fields) {
@@ -69,10 +84,13 @@ export class LibraryStore {
     });
   }
 
+  // Looked up by id inside the change: after a conflict it applies to the library another window saved.
   updateQuery(id, fields) {
-    const q = this.query(id);
-    if (!q) return Promise.reject(new Error('This saved query no longer exists.'));
-    return this.change(() => Object.assign(q, fields, { folder: normalizeFolder(fields.folder ?? q.folder), updated: Date.now() }));
+    return this.change(lib => {
+      const q = lib.queries.find(x => x.id === id);
+      if (!q) throw new Error('This saved query no longer exists.');
+      return Object.assign(q, fields, { folder: normalizeFolder(fields.folder ?? q.folder), updated: Date.now() });
+    });
   }
 
   addSnippet(fields) {
@@ -84,9 +102,11 @@ export class LibraryStore {
   }
 
   updateSnippet(id, fields) {
-    const s = this.snippet(id);
-    if (!s) return Promise.reject(new Error('This snippet no longer exists.'));
-    return this.change(() => Object.assign(s, fields, { updated: Date.now() }));
+    return this.change(lib => {
+      const s = lib.snippets.find(x => x.id === id);
+      if (!s) throw new Error('This snippet no longer exists.');
+      return Object.assign(s, fields, { updated: Date.now() });
+    });
   }
 
   remove(kind, id) {

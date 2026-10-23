@@ -4,6 +4,7 @@ import { h } from '../util.js';
 import { icon } from '../icons.js';
 import { get, post } from '../api.js';
 import { modal } from '../dialogs.js';
+import { pickFiles } from '../files.js';
 
 const SOURCES = [
   { id: 'heidisql', name: 'HeidiSQL', accept: '.txt', multiple: false,
@@ -20,14 +21,6 @@ const toBase64 = async file => {
   for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return btoa(s);
 };
-
-const pickFiles = (accept, multiple) => new Promise(resolve => {
-  const input = h('input', { type: 'file', accept, multiple, style: { display: 'none' } });
-  input.addEventListener('change', () => { resolve([...input.files]); input.remove(); });
-  input.addEventListener('cancel', () => { resolve([]); input.remove(); });
-  document.body.append(input);
-  input.click();
-});
 
 /** Shows the import dialog; resolves to the saved sessions (empty when nothing was imported). */
 export async function importSessionsDialog(app) {

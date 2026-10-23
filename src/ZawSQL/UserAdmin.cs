@@ -158,11 +158,13 @@ public static class UserAdmin
     public static async Task<object> ApplyAsync(MySqlConnection c, SqlLog log, ApplyUserRequest req, CancellationToken ct)
     {
         var executed = 0;
+        // A backslash in the password must reach the server as typed, whatever the session's sql_mode.
+        var password = req.Password == null ? null : SqlLiteral.Quote(req.Password, await Db.NoBackslashEscapesAsync(c, ct));
         foreach (var stmt in req.Statements)
         {
-            if (stmt.Contains(PasswordToken) && req.Password == null)
+            if (stmt.Contains(PasswordToken) && password == null)
                 throw new ApiException("A password is required.");
-            var sql = req.Password == null ? stmt : stmt.Replace(PasswordToken, SqlLiteral.Quote(req.Password));
+            var sql = password == null ? stmt : stmt.Replace(PasswordToken, password);
             var line = log.Add(stmt.Replace(PasswordToken, "'***'"));
             try
             {
@@ -175,7 +177,7 @@ public static class UserAdmin
             {
                 // A syntax error quotes the statement text near the problem, which can be the password.
                 var message = string.IsNullOrEmpty(req.Password) ? ex.Message
-                    : ex.Message.Replace(SqlLiteral.Quote(req.Password)[1..^1], "***").Replace(req.Password, "***");
+                    : ex.Message.Replace(password![1..^1], "***").Replace(req.Password, "***");
                 log.Add($"/* SQL Error ({ex.Number}): {message} */");
                 return new { executed, error = new { statement = executed, message, code = ex.Number } };
             }

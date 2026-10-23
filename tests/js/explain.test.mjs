@@ -119,4 +119,9 @@ test("MySQL's EXPLAIN ANALYZE tree becomes measured steps", () => {
   assert.deepEqual(misestimates(off).map(s => s.label), ['Table scan on t']);
   assert.equal(off[1].neverExecuted, true);
   assert.equal(off[1].label, 'Filter: (x > 1)');
+  // Sorts report a cost range: the total cost is its upper end.
+  const [sort] = parseAnalyzeTree('-> Sort: t.a  (cost=2.65..2.65 rows=5) (actual time=0.054..0.062 rows=3 loops=1)');
+  assert.deepEqual(sort.estimate, { cost: 2.65, rows: 5 });
+  assert.equal(sort.actual.lastMs, 0.062);
+  assert.equal(sort.label, 'Sort: t.a');
 });

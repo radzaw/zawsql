@@ -27,6 +27,7 @@ public static class AppHost
             k.Limits.MaxRequestBodySize = 256L * 1024 * 1024;
         });
         builder.Services.AddSingleton(opts);
+        builder.Services.AddSingleton<BootCodes>();
         builder.Services.AddSingleton<SessionStore>();
         builder.Services.AddSingleton<ConnectionManager>();
         builder.Services.AddSingleton<Heartbeat>();
@@ -62,6 +63,9 @@ public static class AppHost
         });
 
         Api.Map(app);
+        // Outside /api: the page has no token yet. It trades the one-time code of its URL for it.
+        app.MapPost("/boot", (HttpRequest r, BootCodes codes) => codes.Redeem(r.Headers["X-Boot"].FirstOrDefault()) is { } t
+            ? Results.Json(new { token = t }) : Results.StatusCode(StatusCodes.Status401Unauthorized));
         // A closed window's manual-commit tabs are closed too, which rolls back their transactions (and frees their locks).
         app.Services.GetRequiredService<Heartbeat>().PageGone += page => _ = app.Services.GetRequiredService<ConnectionManager>().CloseTabsOfPageAsync(page);
         app.Lifetime.ApplicationStopped.Register(() =>
@@ -76,14 +80,43 @@ public static class AppHost
     public static string Address(WebApplication app) =>
         app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.First();
 
-    /// <summary>The URL that opens the UI: token, plus the saved theme so the page paints in the right colors at once.</summary>
-    public static string LaunchUrl(WebApplication app, AppOptions opts)
+    /// <summary>
+    /// The URL that opens the UI: token, plus the saved theme so the page paints in the right colors at once.
+    /// <paramref name="oneTime"/>: a one-time code in place of the token, for a URL that goes on a browser's command
+    /// line, which other users of the machine can read (ps, /proc).
+    /// </summary>
+    public static string LaunchUrl(WebApplication app, AppOptions opts, bool oneTime = false)
     {
-        var url = $"{Address(app)}/#token={opts.Token}";
+        var url = oneTime ? $"{Address(app)}/#boot={app.Services.GetRequiredService<BootCodes>().Issue()}" : $"{Address(app)}/#token={opts.Token}";
         var state = app.Services.GetRequiredService<SessionStore>().LoadState();
         if (state.ValueKind == JsonValueKind.Object && state.TryGetProperty("prefs", out var prefs) && prefs.ValueKind == JsonValueKind.Object
             && prefs.TryGetProperty("theme", out var theme) && theme.GetString() is "light" or "dark" or "system")
             url += $"&theme={theme.GetString()}";
         return url;
+    }
+}
+
+/// <summary>One-time codes that open a window: each gives out the API token once, within a few minutes.</summary>
+public sealed class BootCodes(AppOptions opts)
+{
+    static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(5);
+    readonly Dictionary<string, DateTime> codes = [];
+
+    public string Issue()
+    {
+        var code = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        lock (codes) codes[code] = DateTime.UtcNow + Lifetime;
+        return code;
+    }
+
+    /// <summary>The token for a valid, unused code (which is then used up); null otherwise.</summary>
+    public string? Redeem(string? code)
+    {
+        if (string.IsNullOrEmpty(code)) return null;
+        lock (codes)
+        {
+            codes.Where(c => c.Value < DateTime.UtcNow).Select(c => c.Key).ToList().ForEach(k => codes.Remove(k));
+            return codes.Remove(code) ? opts.Token : null;
+        }
     }
 }

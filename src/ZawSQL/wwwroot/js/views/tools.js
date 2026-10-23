@@ -1,5 +1,6 @@
 // Dialogs: session manager, exports, SQL file import, create database, preferences, about.
-import { h, esc, qi, sqlStr, fmtBytes, fmtNum, saveTextFile, pickFile, isNumericKind } from '../util.js';
+import { h, esc, qi, sqlStr, fmtBytes, fmtNum, isNumericKind } from '../util.js';
+import { pickFile, saveTextFile, NATIVE_DIALOGS } from '../files.js';
 import { icon } from '../icons.js';
 import { get, post, del, urlWithToken, SSH_HOSTKEY_UNKNOWN } from '../api.js';
 import { modal, confirmDlg, alertError } from '../dialogs.js';
@@ -358,11 +359,21 @@ export function rowsToSql(table, columns, rows) {
   return rows.map(r => `${head} (${columns.map((c, i) => sqlValue(r[i], c)).join(', ')});`).join('\n');
 }
 
-export function exportRows(fmt, columns, rows, { header = true, table = 'export' } = {}) {
+/**
+ * A spreadsheet runs a CSV cell that starts with = + - @ (or tab / CR) as a formula, which can fetch URLs or start
+ * programs. Such text gets a leading ' (shown as text, the way spreadsheets mark it); numbers like -5 stay numbers.
+ */
+export function formulaSafe(v) {
+  if (v == null || !/^[=+\-@\t\r]/.test(v) || /^[+-]?(\d+(\.\d*)?|\.\d+)(e[+-]?\d+)?$/i.test(v)) return v;
+  return "'" + v;
+}
+
+export function exportRows(fmt, columns, rows, { header = true, table = 'export', safeFormulas = false } = {}) {
   const names = columns.map(c => c.name);
   switch (fmt) {
     case 'csv': {
-      const q = v => (v == null ? '' : /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v);
+      const cell = v => (safeFormulas ? formulaSafe(v) : v);
+      const q = x => { const v = cell(x); return v == null ? '' : /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
       return (header ? names.map(q).join(',') + '\r\n' : '') + rows.map(r => r.map(q).join(',')).join('\r\n');
     }
     case 'tsv': {
@@ -399,6 +410,12 @@ export async function exportGridDialog(app, { columns, rows, selected = [], name
   const toClip = h('input', { type: 'radio', name: 'dest', checked: true });
   const toFile = h('input', { type: 'radio', name: 'dest' });
   const table = h('input', { class: 'inp', value: name, spellcheck: false });
+  const safe = h('input', { type: 'checkbox', checked: app.state.exportSafeFormulas !== false });
+  const safeRow = h('label', { class: 'frow', title: "Cells starting with = + - or @ would run as formulas in Excel or LibreOffice; they get a leading '" },
+    h('span', null, ''), h('label', { class: 'chk' }, safe, ' Keep text from running as a spreadsheet formula'));
+  const showSafe = () => { safeRow.style.display = fmt.value === 'csv' ? '' : 'none'; };
+  fmt.addEventListener('change', showSafe);
+  showSafe();
   const body = h('div', { class: 'form2' },
     h('label', { class: 'frow' }, h('span', null, 'Format:'), fmt),
     h('div', { class: 'frow' }, h('span', null, 'Rows:'), h('div', null,
@@ -408,13 +425,15 @@ export async function exportGridDialog(app, { columns, rows, selected = [], name
       h('label', { class: 'chk' }, toClip, ' Copy to clipboard'), h('br'),
       h('label', { class: 'chk' }, toFile, ' Save to file'))),
     h('label', { class: 'frow' }, h('span', null, ''), h('label', { class: 'chk' }, header, ' Include column names')),
+    safeRow,
     h('label', { class: 'frow' }, h('span', null, 'Table name (SQL):'), table));
   const ok = await modal({ title: 'Export grid rows', width: 460, body, buttons: [{ label: 'Export', value: true, primary: true }, { label: 'Cancel', value: false }] });
   if (!ok) return;
   app.state.exportFormat = fmt.value;
+  if (fmt.value === 'csv') app.state.exportSafeFormulas = safe.checked;
   app.saveStateSoon();
   const data = scopeSel.checked ? selected.map(i => rows[i]) : rows;
-  const text = exportRows(fmt.value, columns, data, { header: header.checked, table: table.value || name });
+  const text = exportRows(fmt.value, columns, data, { header: header.checked, table: table.value || name, safeFormulas: safe.checked });
   if (toClip.checked) {
     await navigator.clipboard.writeText(text);
     app.setStatus(`${fmtNum(data.length)} rows copied to clipboard.`);
@@ -441,9 +460,22 @@ export async function exportDumpDialog(app, sid, db, tables = null) {
       h('label', { class: 'chk' }, data, ' Data (INSERT statements)'))));
   const ok = await modal({ title: 'Export database as SQL', width: 480, body, buttons: [{ label: 'Export', value: true, primary: true }, { label: 'Cancel', value: false }] });
   if (!ok) return;
-  const url = urlWithToken(`/s/${sid}/dump`, {
+  const q = {
     db, tables: tables?.length ? JSON.stringify(tables) : null, structure: String(structure.checked), data: String(data.checked), drop: String(drop.checked), createDb: String(createDb.checked),
-  });
+  };
+  if (NATIVE_DIALOGS) {
+    // No downloads in this web view: the backend asks where to save and writes the dump there.
+    app.setStatus(`Exporting ${db}…`);
+    try {
+      const r = await get(`/s/${sid}/dump`, { ...q, toFile: 'true' });
+      app.setStatus(r ? `${db} exported to ${r.name}.` : '');
+    } catch (e) {
+      app.setStatus('');
+      app.showError(e);
+    }
+    return;
+  }
+  const url = urlWithToken(`/s/${sid}/dump`, q);
   const a = h('a', { href: url, download: `${db}.sql` });
   document.body.append(a);
   a.click();

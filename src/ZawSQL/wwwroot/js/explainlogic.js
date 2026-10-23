@@ -251,8 +251,10 @@ export function tables(root) {
 
 // ---------------------------------------------------------------- MySQL EXPLAIN ANALYZE (tree)
 
-const COST_RE = /\s*\(cost=([\d.e+-]+)(?:\.\.([\d.e+-]+))? rows=([\d.e+-]+)\)/;
-const ACTUAL_RE = /\s*\(actual time=([\d.e+-]+)\.\.([\d.e+-]+) rows=([\d.e+-]+) loops=(\d+)\)/;
+// A number such as 0.35, 1e+06 or 2.5e-05. A character class like [\d.e+-]+ would swallow both ends of "0.35..1.25".
+const N = String.raw`(\d+(?:\.\d+)?(?:e[+-]?\d+)?)`;
+const COST_RE = new RegExp(String.raw`\s*\(cost=${N}(?:\.\.${N})? rows=${N}\)`);
+const ACTUAL_RE = new RegExp(String.raw`\s*\(actual time=${N}\.\.${N} rows=${N} loops=(\d+)\)`);
 
 /**
  * MySQL's EXPLAIN ANALYZE output as steps: { label, depth, estimate: {cost, rows}, actual: {firstMs, lastMs, rows, loops,

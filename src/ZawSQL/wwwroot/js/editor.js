@@ -157,6 +157,8 @@ export class SqlEditor {
   }
 
   onKey(e) {
+    // Enter / Tab / Esc while an input method (Chinese, Japanese …) composes a word belong to the input method.
+    if (e.isComposing || e.keyCode === 229) return;
     if (this.popup) {
       const n = this.compList.length;
       if (e.key === 'ArrowDown') { this.compSel = (this.compSel + 1) % n; this.renderPopup(); e.preventDefault(); return; }

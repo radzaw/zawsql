@@ -38,8 +38,10 @@ export const esc = s => String(s).replace(/[&<>"']/g, c => ESC[c]);
 export const qi = s => '`' + String(s).replace(/`/g, '``') + '`';
 
 /** Quotes a MySQL string literal. */
+// Quotes are doubled (''), which reads the same under every sql_mode: with NO_BACKSLASH_ESCAPES a backslash
+// value comes out doubled, but the literal never ends early.
 export const sqlStr = s => "'" + String(s)
-  .replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\0/g, '\\0')
+  .replace(/\\/g, '\\\\').replace(/'/g, "''").replace(/\0/g, '\\0')
   .replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\x1a/g, '\\Z') + "'";
 
 export function fmtBytes(n) {
@@ -86,42 +88,6 @@ export function makeSplitter(handle, { axis, get, set, onEnd }) {
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
   });
-}
-
-export function download(name, text, type = 'text/plain;charset=utf-8') {
-  const url = URL.createObjectURL(new Blob([text], { type }));
-  const a = h('a', { href: url, download: name });
-  document.body.append(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 10000);
-}
-
-export function pickFile(accept = '') {
-  return new Promise(resolve => {
-    const input = h('input', { type: 'file', accept, style: { display: 'none' } });
-    input.addEventListener('change', () => { resolve(input.files[0] || null); input.remove(); });
-    input.addEventListener('cancel', () => { resolve(null); input.remove(); });
-    document.body.append(input);
-    input.click();
-  });
-}
-
-/** Saves text through the native save dialog when available, else as a download. */
-export async function saveTextFile(name, text, description = 'SQL files', ext = '.sql') {
-  if (window.showSaveFilePicker) {
-    try {
-      const fh = await window.showSaveFilePicker({ suggestedName: name, types: [{ description, accept: { 'text/plain': [ext] } }] });
-      const w = await fh.createWritable();
-      await w.write(text);
-      await w.close();
-      return fh.name;
-    } catch (e) {
-      if (e.name === 'AbortError') return null;
-    }
-  }
-  download(name, text);
-  return name;
 }
 
 /** Values of an ENUM column type, or null. */

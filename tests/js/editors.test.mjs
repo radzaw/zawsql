@@ -199,7 +199,7 @@ for (const server of ['mysql', 'mariadb']) {
     assert.equal(p1.subs[1].opts.minRows, '5');
     assert.equal(partChanged(p), false);
     assert.equal(partitionClause(p).split('\n').slice(2).join('\n'),
-      "\tPARTITION `p0` VALUES LESS THAN (2000) MIN_ROWS = 10 (SUBPARTITION `s0` COMMENT = 'first half' DATA DIRECTORY = '/tmp/pdata' MAX_ROWS = 500, SUBPARTITION `s1` COMMENT = 'it\\'s second' MAX_ROWS = 1000),\n" +
+      "\tPARTITION `p0` VALUES LESS THAN (2000) MIN_ROWS = 10 (SUBPARTITION `s0` COMMENT = 'first half' DATA DIRECTORY = '/tmp/pdata' MAX_ROWS = 500, SUBPARTITION `s1` COMMENT = 'it''s second' MAX_ROWS = 1000),\n" +
       "\tPARTITION `p1` VALUES LESS THAN MAXVALUE DATA DIRECTORY = '/tmp/pdata' (SUBPARTITION `s2`, SUBPARTITION `s3` MIN_ROWS = 5)\n)");
   });
 
@@ -312,7 +312,7 @@ test('new and cloned accounts', () => {
   const n = users.newModel();
   n.user = "o'brien";
   n.grants[0].privs.add('SELECT');
-  assert.deepEqual(users.genSql(n, 'pw'), ["CREATE USER 'o\\'brien'@'%' IDENTIFIED BY {{PASSWORD}}", "GRANT SELECT ON *.* TO 'o\\'brien'@'%'"]);
+  assert.deepEqual(users.genSql(n, 'pw'), ["CREATE USER 'o''brien'@'%' IDENTIFIED BY {{PASSWORD}}", "GRANT SELECT ON *.* TO 'o''brien'@'%'"]);
   const c = users.newModel(users.toModel(appUser));
   const sql = users.genSql(c, '');
   assert.equal(sql[0], "CREATE USER 'app_copy'@'%'");
@@ -327,11 +327,15 @@ const rows = [['1', 'a,"b"', '0x01'], ['2', null, null]];
 
 test('grid rows export to CSV, TSV, SQL, JSON, Markdown and HTML', () => {
   assert.equal(exportRows('csv', cols, rows), 'id,txt,bin\r\n1,"a,""b""",0x01\r\n2,,');
+  // Text a spreadsheet would run as a formula is marked as text; numbers stay numbers.
+  const risky = [['-5', '=HYPERLINK("http://x")', '@SUM(A1)'], ['+1.5e3', '-x', null]];
+  assert.equal(exportRows('csv', cols, risky, { header: false, safeFormulas: true }), `-5,"'=HYPERLINK(""http://x"")",'@SUM(A1)\r\n+1.5e3,'-x,`);
+  assert.equal(exportRows('csv', cols, risky, { header: false }).split('\r\n')[1], '+1.5e3,-x,');
   assert.equal(exportRows('tsv', cols, rows), 'id\ttxt\tbin\n1\ta,"b"\t0x01\n2\t\\N\t\\N');
   assert.equal(exportRows('sql', cols, rows, { table: 't' }),
     "INSERT INTO `t` (`id`, `txt`, `bin`) VALUES (1, 'a,\"b\"', 0x01);\nINSERT INTO `t` (`id`, `txt`, `bin`) VALUES (2, NULL, NULL);");
   assert.deepEqual(JSON.parse(exportRows('json', cols, rows)), [{ id: 1, txt: 'a,"b"', bin: '0x01' }, { id: 2, txt: null, bin: null }]);
   assert.match(exportRows('md', cols, rows), /^\| id \| txt \| bin \|\n\| --- \| --- \| --- \|/);
   assert.match(exportRows('html', cols, rows), /<td>a,&quot;b&quot;<\/td>/);
-  assert.equal(rowsToSql('t', cols, [["5", "it's", ''], ]), "INSERT INTO `t` (`id`, `txt`, `bin`) VALUES (5, 'it\\'s', '');");
+  assert.equal(rowsToSql('t', cols, [["5", "it's", ''], ]), "INSERT INTO `t` (`id`, `txt`, `bin`) VALUES (5, 'it''s', '');");
 });

@@ -1,5 +1,6 @@
 // "Query" tabs: SQL editor with multiple result sets.
-import { h, esc, fmtNum, fmtSecs, fmtElapsed, makeSplitter, pickFile, saveTextFile, isNumericKind, parseEnum } from '../util.js';
+import { h, esc, fmtNum, fmtSecs, fmtElapsed, makeSplitter, isNumericKind, parseEnum } from '../util.js';
+import { pickFile, saveTextFile } from '../files.js';
 import { icon } from '../icons.js';
 import { get, post, pageId } from '../api.js';
 import { RowEditor } from './editing.js';

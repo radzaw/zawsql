@@ -12,6 +12,12 @@ public sealed class SqlDumper(MySqlConnection c, TextWriter w)
     public bool DropObjects { get; init; } = true;
     public bool CreateDatabase { get; init; }
 
+    /// <summary>
+    /// Text for a "-- " comment line. A quoted name may contain a line break, and whatever followed it would run as
+    /// SQL when the script is imported.
+    /// </summary>
+    public static string Line(string? s) => (s ?? "").ReplaceLineEndings(" ");
+
     public async Task RunAsync(string db, IReadOnlyCollection<string>? only, CancellationToken ct)
     {
         // With the dumped database as default, SHOW CREATE VIEW leaves same-database names unqualified,
@@ -23,8 +29,8 @@ public sealed class SqlDumper(MySqlConnection c, TextWriter w)
         await w.WriteAsync($"""
             -- --------------------------------------------------------
             -- ZawSQL SQL dump
-            -- Server version: {version}
-            -- Database:       {db}
+            -- Server version: {Line(version)}
+            -- Database:       {Line(db)}
             -- Date:           {DateTime.Now:yyyy-MM-dd HH:mm:ss}
             -- --------------------------------------------------------
 
@@ -56,7 +62,7 @@ public sealed class SqlDumper(MySqlConnection c, TextWriter w)
             ct.ThrowIfCancellationRequested();
             if (Structure)
             {
-                await w.WriteAsync($"-- Structure of table {Db.Q(t)}\n");
+                await w.WriteAsync($"-- Structure of table {Line(Db.Q(t))}\n");
                 if (DropObjects) await w.WriteAsync($"DROP TABLE IF EXISTS {Db.Q(t)};\n");
                 await w.WriteAsync($"{await TableMeta.ShowCreateAsync(c, null, db, "TABLE", t, ct)};\n\n");
             }
@@ -69,7 +75,7 @@ public sealed class SqlDumper(MySqlConnection c, TextWriter w)
             foreach (var v in views) code[v] = await TableMeta.ShowCreateAsync(c, null, db, "VIEW", v, ct);
             foreach (var v in DependencyOrder(code))
             {
-                await w.WriteAsync($"-- Structure of view {Db.Q(v)}\n");
+                await w.WriteAsync($"-- Structure of view {Line(Db.Q(v))}\n");
                 if (DropObjects) await w.WriteAsync($"DROP VIEW IF EXISTS {Db.Q(v)};\n");
                 await w.WriteAsync($"{code[v]};\n\n");
             }
@@ -115,7 +121,7 @@ public sealed class SqlDumper(MySqlConnection c, TextWriter w)
         async Task Collect(string type, string sql)
         {
             try { programs.AddRange((await Db.ColumnAsync(c, null, sql, ct, db)).Select(n => (type, n))); }
-            catch (MySqlException ex) { await w.WriteAsync($"-- Skipped {type.ToLowerInvariant()}s: {ex.Message}\n"); }
+            catch (MySqlException ex) { await w.WriteAsync($"-- Skipped {type.ToLowerInvariant()}s: {Line(ex.Message)}\n"); }
         }
         await Collect("PROCEDURE", "SELECT ROUTINE_NAME FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = @p0 AND ROUTINE_TYPE = 'PROCEDURE' ORDER BY ROUTINE_NAME");
         await Collect("FUNCTION", "SELECT ROUTINE_NAME FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = @p0 AND ROUTINE_TYPE = 'FUNCTION' ORDER BY ROUTINE_NAME");
@@ -128,9 +134,9 @@ public sealed class SqlDumper(MySqlConnection c, TextWriter w)
         {
             string? code;
             try { code = await TableMeta.ShowCreateAsync(c, null, db, type, name, ct); }
-            catch (MySqlException ex) { await w.WriteAsync($"-- Skipped {type.ToLowerInvariant()} {Db.Q(name)}: {ex.Message}\n\n"); continue; }
+            catch (MySqlException ex) { await w.WriteAsync($"-- Skipped {type.ToLowerInvariant()} {Line(Db.Q(name))}: {Line(ex.Message)}\n\n"); continue; }
             if (code == null) continue;
-            await w.WriteAsync($"-- {type.ToLowerInvariant()} {Db.Q(name)}\n");
+            await w.WriteAsync($"-- {type.ToLowerInvariant()} {Line(Db.Q(name))}\n");
             if (DropObjects) await w.WriteAsync($"DROP {type} IF EXISTS {Db.Q(name)};;\n");
             await w.WriteAsync($"{code};;\n\n");
         }
@@ -153,7 +159,7 @@ public sealed class SqlDumper(MySqlConnection c, TextWriter w)
         var sb = new StringBuilder();
         var inBatch = 0;
         long total = 0;
-        await w.WriteAsync($"-- Data of table {Db.Q(table)}\n");
+        await w.WriteAsync($"-- Data of table {Line(Db.Q(table))}\n");
         while (await r.ReadAsync(ct))
         {
             sb.Append(inBatch == 0 ? head : ",\n\t").Append('(');

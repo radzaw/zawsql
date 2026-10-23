@@ -27,7 +27,7 @@ public static class ServerMonitor
 
     static readonly string[] VariableNames = ["max_connections", "innodb_buffer_pool_size", "long_query_time", "slow_query_log"];
 
-    static string InList(IEnumerable<string> names) => string.Join(", ", names.Select(SqlLiteral.Quote));
+    static string InList(IEnumerable<string> names) => string.Join(", ", names.Select(n => SqlLiteral.Quote(n)));
 
     public static async Task<object> SampleAsync(MySqlConnection c, CancellationToken ct)
     {

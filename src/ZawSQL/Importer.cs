@@ -785,8 +785,9 @@ public static partial class Importer
     }
 
     /// <summary>One cell as an SQL literal for a column of the given category.</summary>
-    public static string Literal(string? v, Category cat, ImportStartRequest o)
+    public static string Literal(string? v, Category cat, ImportStartRequest o, bool noBackslashEscapes = false)
     {
+        string Quote(string s) => SqlLiteral.Quote(s, noBackslashEscapes);
         if (v == null) return "NULL";
         if (!string.IsNullOrEmpty(o.NullText) && v == o.NullText) return "NULL";
         if (v.Length == 0)
@@ -800,15 +801,15 @@ public static partial class Importer
         }
         switch (cat)
         {
-            case Category.Number: return SqlLiteral.Quote(NormalizeNumber(v, o.DecimalComma));
+            case Category.Number: return Quote(NormalizeNumber(v, o.DecimalComma));
             case Category.Bit:
             {
                 var n = NormalizeNumber(v, false);
-                return Regex.IsMatch(n, @"^\d+$") ? n : SqlLiteral.Quote(n);
+                return Regex.IsMatch(n, @"^\d+$") ? n : Quote(n);
             }
-            case Category.Date: case Category.DateTime: return SqlLiteral.Quote(NormalizeDate(v, o.DateOrder));
-            case Category.Time: return SqlLiteral.Quote(v.Trim());
-            default: return SqlLiteral.Quote(v);
+            case Category.Date: case Category.DateTime: return Quote(NormalizeDate(v, o.DateOrder));
+            case Category.Time: return Quote(v.Trim());
+            default: return Quote(v);
         }
     }
 
@@ -852,6 +853,8 @@ public sealed class ImportJob : IAsyncDisposable
     public required string Head { get; init; }
     public required string Tail { get; init; }
     public required long Total { get; init; }
+    /// <summary>The import session's sql_mode has NO_BACKSLASH_ESCAPES: values are quoted without backslash escapes.</summary>
+    public bool NoBackslashEscapes { get; init; }
     public DateTime LastUsed { get; private set; } = DateTime.UtcNow;
 
     readonly SemaphoreSlim gate = new(1, 1);
@@ -868,7 +871,7 @@ public sealed class ImportJob : IAsyncDisposable
         {
             if (i > 0) sb.Append(", ");
             var src = Options.Mapping[i].Source;
-            sb.Append(Importer.Literal(src >= 0 && src < row.Length ? row[src] : null, Categories[i], Options));
+            sb.Append(Importer.Literal(src >= 0 && src < row.Length ? row[src] : null, Categories[i], Options, NoBackslashEscapes));
         }
         return sb.Append(')').ToString();
     }
@@ -1060,6 +1063,7 @@ public static partial class Importer
                     ? "\nAS zs_new ON DUPLICATE KEY UPDATE " + string.Join(", ", names.Select(n => $"{Db.Q(n)} = zs_new.{Db.Q(n)}"))
                     : "\nON DUPLICATE KEY UPDATE " + string.Join(", ", names.Select(n => $"{Db.Q(n)} = VALUES({Db.Q(n)})"));
             }
+            var nbe = await Db.NoBackslashEscapesAsync(c, ct);
             var truncateSql = !req.Truncate ? null : req.Transaction ? $"DELETE FROM {Db.Q(req.Db, req.Table)}" : $"TRUNCATE TABLE {Db.Q(req.Db, req.Table)}";
 
             if (req.DryRun)
@@ -1067,7 +1071,7 @@ public static partial class Importer
                 var sample = new List<string>();
                 using (var src = SourceReader.Open(file, req.Source))
                 {
-                    var probe = new ImportJob { Sid = ses.Id, Conn = c, Source = src, Options = req, Categories = cats, Head = head, Tail = tail, Total = 0 };
+                    var probe = new ImportJob { Sid = ses.Id, Conn = c, Source = src, Options = req, Categories = cats, Head = head, Tail = tail, Total = 0, NoBackslashEscapes = nbe };
                     for (var k = 0; k < 3 && src.Next() is { } row; k++) sample.Add(probe.Tuple(row));
                 }
                 await c.DisposeAsync();
@@ -1085,7 +1089,7 @@ public static partial class Importer
             var job = new ImportJob
             {
                 Sid = ses.Id, Conn = c, Source = SourceReader.Open(file, req.Source), Options = req, Categories = cats,
-                Head = head, Tail = tail, Total = total, InTransaction = req.Transaction,
+                Head = head, Tail = tail, Total = total, InTransaction = req.Transaction, NoBackslashEscapes = nbe,
             };
             store.AddJob(job);
             log.Add($"/* Importing {total:N0} rows from {file.Name} into {req.Db}.{req.Table} */");

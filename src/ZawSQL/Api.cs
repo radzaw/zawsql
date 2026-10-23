@@ -18,6 +18,7 @@ public static class Api
 {
     /// <summary>Error code for an SSH host key the user hasn't trusted yet; data carries the fingerprint.</summary>
     public const int SshHostKeyUnknown = 9001;
+    public const int LibraryConflict = 9002;
 
     const string ReadOnlyMessage = "This session is in read-only mode; changes are not allowed.";
 
@@ -41,6 +42,10 @@ public static class Api
         {
             log.Add($"/* {ex.Message} Fingerprint: {ex.Fingerprint} */");
             return Results.Json(new Response(false, new { host = ex.Host, port = ex.Port, fingerprint = ex.Fingerprint }, ex.Message, SshHostKeyUnknown, log.Items, log.Times, log.Ms));
+        }
+        catch (LibraryConflictException ex)
+        {
+            return Results.Json(new Response(false, null, ex.Message, LibraryConflict, log.Items, log.Times, log.Ms));
         }
         catch (OperationCanceledException)
         {
@@ -111,8 +116,20 @@ public static class Api
         api.MapPut("/library", async (HttpRequest req, SessionStore st) =>
         {
             using var doc = await JsonDocument.ParseAsync(req.Body);
-            return await RunSync(() => { st.SaveLibrary(doc.RootElement); return null; });
+            return await RunSync(() => new { revision = st.SaveLibrary(doc.RootElement) });
         });
+
+        // ---- the native window's file dialogs (macOS and Linux web views have none for the page) ----
+        api.MapPost("/native/open", (NativeOpenRequest req, AppWindow win) => Run(async _ => await win.OpenDialogAsync(req.Accept, req.Multiple)));
+        api.MapGet("/native/file/{id}", (string id, AppWindow win) =>
+            win.TakePicked(id) is { } path ? Results.File(path, "application/octet-stream") : Results.NotFound());
+        api.MapPost("/native/save", (NativeSaveRequest req, AppWindow win) => Run(async _ =>
+        {
+            var path = await win.SaveDialogAsync(req.Description ?? "Files", req.Ext ?? "");
+            if (path == null) return null;
+            await File.WriteAllTextAsync(path, req.Text ?? "", new UTF8Encoding(false));
+            return new { name = Path.GetFileName(path) };
+        }));
 
         // ---- self-update ----
         api.MapGet("/version", (Updater u) => RunSync(() => u.Version()));
@@ -516,7 +533,9 @@ public static class Api
             return null;
         }));
 
-        s.MapGet("/dump", async (HttpContext ctx, string sid, string db, string? tables, bool? structure, bool? data, bool? drop, bool? createDb, ConnectionManager cm) =>
+        // toFile: the native window (macOS, Linux) asks where to save and the dump is written there, not downloaded.
+        s.MapGet("/dump", async (HttpContext ctx, string sid, string db, string? tables, bool? structure, bool? data, bool? drop, bool? createDb, bool? toFile,
+            ConnectionManager cm, AppWindow win) =>
         {
             var ct = ctx.RequestAborted;
             var ses = cm.Get(sid);
@@ -524,26 +543,49 @@ public static class Api
             string[]? only;
             try { only = tables == null ? null : JsonSerializer.Deserialize<string[]>(tables); }
             catch (JsonException) { throw new ApiException("Invalid object list."); }
+            async Task Dump(MySqlConnection c, TextWriter w)
+            {
+                var dumper = new SqlDumper(c, w)
+                {
+                    Structure = structure ?? true,
+                    Data = data ?? true,
+                    DropObjects = drop ?? true,
+                    CreateDatabase = createDb ?? false,
+                };
+                try
+                {
+                    await dumper.RunAsync(db, only, ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    await w.WriteAsync($"\n-- ERROR: dump aborted: {SqlDumper.Line(ex.Message)}\n");
+                    throw;
+                }
+            }
+
+            if (toFile == true)
+            {
+                return await Run(async _ =>
+                {
+                    var path = await win.SaveDialogAsync("SQL files", ".sql");
+                    if (path == null) return null;
+                    await using var c = await cm.OpenMetaAsync(ses, ct);
+                    await using (var w = new StreamWriter(path, false, new UTF8Encoding(false), 1 << 16)) await Dump(c, w);
+                    return new { name = Path.GetFileName(path) };
+                });
+            }
+
             var fileName = Regex.Replace(db, @"[^\w\-.]+", "_") + ".sql";
             ctx.Response.ContentType = "application/sql; charset=utf-8";
             ctx.Response.Headers.ContentDisposition = $"attachment; filename=\"{fileName}\"";
-            await using var c = await cm.OpenMetaAsync(ses, ct);
-            await using var w = new StreamWriter(ctx.Response.Body, new UTF8Encoding(false), 1 << 16);
-            var dumper = new SqlDumper(c, w)
+            await using var conn = await cm.OpenMetaAsync(ses, ct);
+            await using (var w = new StreamWriter(ctx.Response.Body, new UTF8Encoding(false), 1 << 16))
             {
-                Structure = structure ?? true,
-                Data = data ?? true,
-                DropObjects = drop ?? true,
-                CreateDatabase = createDb ?? false,
-            };
-            try
-            {
-                await dumper.RunAsync(db, only, ct);
+                // The download has started: an error can only be written into the file.
+                try { await Dump(conn, w); }
+                catch (Exception ex) when (ex is not OperationCanceledException) { }
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                await w.WriteAsync($"\n-- ERROR: dump aborted: {ex.Message}\n");
-            }
+            return Results.Empty;
         });
     }
 }

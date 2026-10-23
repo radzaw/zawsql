@@ -28,6 +28,34 @@ test('a change whose save fails is undone', async () => {
   assert.equal(st.query(q.id).name, 'renamed');
 });
 
+test('two windows saving the library keep both changes', async () => {
+  // A backend that numbers saves and refuses one based on an older revision, like SessionStore.SaveLibrary.
+  let saved = null;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, o) => {
+    let body = { ok: true, data: saved };
+    if (o.method === 'PUT') {
+      const doc = JSON.parse(o.body), current = saved?.revision ?? 0;
+      if (doc.revision !== current) body = { ok: false, error: 'changed in another window', code: 9002 };
+      else { saved = { ...doc, revision: current + 1 }; body = { ok: true, data: { revision: current + 1 } }; }
+    }
+    return { status: 200, json: async () => structuredClone(body) };
+  };
+  try {
+    const a = new LibraryStore(), b = new LibraryStore();
+    await a.load();
+    await b.load();
+    const q = await a.addQuery({ name: 'from A', sql: 'SELECT 1' });
+    await b.addQuery({ name: 'from B', sql: 'SELECT 2' }); // B's copy is stale: it reloads and adds to A's library
+    assert.deepEqual(saved.queries.map(x => x.name).sort(), ['from A', 'from B']);
+    await a.updateQuery(q.id, { name: 'renamed by A' }); // and A, now stale, keeps B's query
+    assert.deepEqual(saved.queries.map(x => x.name).sort(), ['from B', 'renamed by A']);
+    assert.deepEqual(a.queries.map(x => x.name).sort(), ['from B', 'renamed by A']);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 test('a library that failed to load is never written back', async () => {
   const st = new LibraryStore();
   const realFetch = globalThis.fetch;

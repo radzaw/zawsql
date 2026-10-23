@@ -1,6 +1,7 @@
 // CSV / Excel import wizard: 1. file and how to read it, 2. target table and column mapping, 3. options, then a
 // batched import with progress. Parsing, conversion and inserting happen in the backend (Importer.cs).
-import { h, fmtNum, fmtBytes, debounce, pickFile } from '../util.js';
+import { h, fmtNum, fmtBytes, debounce } from '../util.js';
+import { pickFile } from '../files.js';
 import { post, del, upload } from '../api.js';
 import { Grid } from '../grid.js';
 import { modal } from '../dialogs.js';

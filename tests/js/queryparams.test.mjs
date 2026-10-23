@@ -22,7 +22,7 @@ test('parameters are found in code only', () => {
 });
 
 test('values become SQL literals', () => {
-  assert.equal(literal('text', "O'Brien\\"), "'O\\'Brien\\\\'");
+  assert.equal(literal('text', "O'Brien\\"), "'O''Brien\\\\'");
   assert.equal(literal('text', ''), "''");
   assert.equal(literal('number', ' 42 '), '42');
   assert.equal(literal('number', '-3.5e2'), '-3.5e2');
@@ -36,7 +36,7 @@ test('values become SQL literals', () => {
 test('binding replaces every occurrence and leaves strings alone', () => {
   const v = { id: { type: 'number', value: '7' }, name: { type: 'text', value: "a'b" }, ids: { type: 'sql', value: '1,2' } };
   assert.equal(bindParams("SELECT ':id', :id FROM t WHERE name = :name OR id IN (:ids) OR parent = :id", v),
-    "SELECT ':id', 7 FROM t WHERE name = 'a\\'b' OR id IN (1,2) OR parent = 7");
+    "SELECT ':id', 7 FROM t WHERE name = 'a''b' OR id IN (1,2) OR parent = 7");
   assert.throws(() => bindParams('SELECT :missing', v), /No value for :missing/);
   assert.equal(bindParams('SELECT 1', {}), 'SELECT 1');
 });

@@ -94,8 +94,8 @@ The backend is an ASP.NET Core app that talks to the database (via [MySqlConnect
   - **Ctrl+S** saves the tab's SQL to the library with a name, an optional folder (`Reports/Monthly`) and a description. The tab is then linked to that query: it takes the query's name, shows a modified mark while the editor differs, and Ctrl+S updates it. Ctrl+Shift+S saves a copy.
   - The side panel lists saved queries by folder, with a filter that searches names, folders, descriptions and SQL. Double-click opens a query (or switches to the tab already showing it). The context menu can also open it in a new tab, run it, insert it at the cursor, edit, duplicate or delete it.
   - **Snippets** are reusable fragments with a trigger word: type `sel` and press **Tab** to expand it. Tab then moves through its fields (`${1:table}`, `${2:*}`, …), Shift+Tab goes back and Esc finishes. Snippets can use the table and database selected in the tree, today's date, and the selected text (double-clicking `tx` in the panel wraps the selection in a transaction). Triggers also appear in autocompletion. Twelve common snippets are included; you can edit or delete them, add your own, and restore the defaults.
-  - The library is stored in `library.json` in the configuration directory, and the previous version is kept as `library.json.bak`. Import and export (JSON) let you share it or move it to another machine; importing merges and skips duplicates.
-- **Export / import**: dump a database or selected tables to SQL (structure, data, routines, triggers, events). Export grid rows as CSV, TSV, SQL, JSON, Markdown or HTML. Run large SQL files with a progress dialog.
+  - The library is stored in `library.json` in the configuration directory, and the previous version is kept as `library.json.bak`. Several windows can change it at the same time: a window that saves over a newer version takes it and applies its change to it, so no change is lost. Import and export (JSON) let you share it or move it to another machine; importing merges and skips duplicates.
+- **Export / import**: dump a database or selected tables to SQL (structure, data, routines, triggers, events). Export grid rows as CSV, TSV, SQL, JSON, Markdown or HTML. In CSV files, text that a spreadsheet would run as a formula (starting with `=`, `+`, `-` or `@`) gets a leading `'` unless you turn this off; numbers stay numbers. Run large SQL files with a progress dialog.
 - **CSV / Excel import wizard** (File or Tools menu, or right-click a database or table):
   - **File:** CSV, TSV and text files in any encoding (detected from the BOM or the content; Windows-1250/1252, ISO-8859-x and UTF-16 can be picked), with the delimiter (comma, semicolon, tab, pipe) and quoting detected. Quoted fields may contain delimiters, doubled quotes and line breaks. Excel **.xlsx** workbooks are read directly, with a choice of worksheet; dates, times, booleans and numbers come through as in Excel. You can skip leading rows and say whether the first row holds column names. A live preview shows the first 100 rows.
   - **Target:** a **new table**, with column names from the header and guessed types (`INT`/`BIGINT`, `DECIMAL(p,s)`, `DATE`/`DATETIME`, `TINYINT(1)`, `VARCHAR(n)`/`TEXT`; codes with leading zeros stay text), all editable, plus an optional auto-increment id. Or an **existing table**, with file columns matched to table columns by name (ignoring case, spaces, underscores and accents) and adjustable.
@@ -307,7 +307,7 @@ Configuration is stored in `%APPDATA%\ZawSQL` on Windows and `~/.config/ZawSQL` 
 ## Security model
 
 - The backend listens on `127.0.0.1` only.
-- Every API call needs a random per-process token, which is passed to the app window in the URL fragment. Other local web pages can't use the backend.
+- Every API call needs a random per-process token, which is passed to the app window in the URL fragment. Other local web pages can't use the backend. A browser app window (`--use-browser`, or the fallback when there is no native window) gets a one-time code on its command line instead, because other users of the machine can read command lines. The page trades the code for the token once, so a copied URL opens nothing.
 - Saved passwords are encrypted with a random key in the configuration directory (file mode `0600` on Unix). This keeps them out of plain sight, but it doesn't replace OS account security.
 
 ## Architecture
@@ -315,7 +315,7 @@ Configuration is stored in `%APPDATA%\ZawSQL` on Windows and `~/.config/ZawSQL` 
 ```
 src/ZawSQL/
   Program.cs            host setup, token check, embedded static files, window launch
-  AppWindow.cs          the native window (Photino): close handshake, title bar theme, external links
+  AppWindow.cs          the native window (Photino): close handshake, title bar theme, external links, file dialogs
   Api.cs                minimal-API endpoints (/api/...)
   ConnectionManager.cs  per-session main connection + pooled metadata connections
   TableMeta.cs          columns / indexes / foreign keys / SHOW CREATE

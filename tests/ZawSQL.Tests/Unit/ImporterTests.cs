@@ -144,7 +144,8 @@ public sealed class ImporterTests : IDisposable
         Assert.Equal("'12.5'", Importer.Literal("12,5", Importer.Category.Number, o));
         Assert.Equal("'2024-12-31'", Importer.Literal("31.12.2024", Importer.Category.Date, o));
         Assert.Equal("1", Importer.Literal("1", Importer.Category.Bit, o));
-        Assert.Equal(@"'it\'s; \\ ok'", Importer.Literal(@"it's; \ ok", Importer.Category.Text, o));
+        Assert.Equal(@"'it''s; \\ ok'", Importer.Literal(@"it's; \ ok", Importer.Category.Text, o));
+        Assert.Equal(@"'it''s; \ ok'", Importer.Literal(@"it's; \ ok", Importer.Category.Text, o, noBackslashEscapes: true));
         Assert.Equal("NULL", Importer.Literal("", Importer.Category.Text, new ImportStartRequest { Empty = "null" }));
         Assert.Equal("''", Importer.Literal("", Importer.Category.Number, new ImportStartRequest { Empty = "empty" }));
         Assert.Equal(Importer.Category.Number, Importer.CategoryOf("decimal(10,2) unsigned"));

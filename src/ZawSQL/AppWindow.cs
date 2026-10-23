@@ -4,6 +4,9 @@ using Photino.NET;
 
 namespace ZawSQL;
 
+public sealed record NativeOpenRequest(string? Accept, bool Multiple);
+public sealed record NativeSaveRequest(string? Description, string? Ext, string? Text);
+
 /// <summary>
 /// The native app window: the UI in the operating system's web view (WebView2 on Windows, WKWebView on macOS,
 /// WebKitGTK on Linux) through Photino. The window has to run on the process's main thread, which on Windows must
@@ -141,6 +144,69 @@ public sealed class AppWindow(AppOptions opts, ILogger<AppWindow> log)
                 OpenInBrowser(message[5..]);
                 break;
         }
+    }
+
+    // ---- file dialogs: WKWebView (macOS) and WebKitGTK (Linux) give the page no file pickers or downloads ----
+
+    readonly Dictionary<string, string> picked = [];
+
+    static string StartFolder()
+    {
+        var downloads = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+        return Directory.Exists(downloads) ? downloads : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+    }
+
+    /// <summary>Runs a dialog on the window's thread; the request waits until it's closed.</summary>
+    Task<T> OnWindow<T>(Func<PhotinoWindow, T> dialog)
+    {
+        var w = window;
+        if (!open || w == null) throw new ApiException("The native window is not open.");
+        return Task.Run(() =>
+        {
+            T result = default!;
+            w.Invoke(() => result = dialog(w));
+            return result;
+        });
+    }
+
+    /// <summary>
+    /// Asks where to save a file: null when cancelled. The dialog can't suggest a file name, so a name typed without
+    /// an extension gets <paramref name="ext"/>.
+    /// </summary>
+    public async Task<string?> SaveDialogAsync(string description, string ext)
+    {
+        var path = await OnWindow(w => w.ShowSaveFile("Save as", StartFolder(), [(description, ["*" + ext]), ("All files", ["*"])]));
+        if (string.IsNullOrEmpty(path)) return null;
+        return Path.HasExtension(path) ? path : path + ext;
+    }
+
+    /// <summary>
+    /// Lets the user choose files (<paramref name="accept"/>: ".csv,.txt" as for an input element). The page reads each
+    /// through <see cref="TakePicked"/> by an id: it never names a path itself.
+    /// </summary>
+    public async Task<List<object>> OpenDialogAsync(string? accept, bool multiple)
+    {
+        var exts = (accept ?? "").Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Where(a => a.StartsWith('.')).Select(a => "*" + a).ToArray();
+        (string, string[])[] filters = exts.Length > 0 ? [("Supported files", exts), ("All files", ["*"])] : [("All files", ["*"])];
+        var paths = await OnWindow(w => w.ShowOpenFile("Open", StartFolder(), multiple, filters)) ?? [];
+        var list = new List<object>();
+        lock (picked)
+        {
+            foreach (var p in paths.Where(File.Exists))
+            {
+                var id = Guid.NewGuid().ToString("n");
+                picked[id] = p;
+                list.Add(new { id, name = Path.GetFileName(p), size = new FileInfo(p).Length });
+            }
+        }
+        return list;
+    }
+
+    /// <summary>The path of a file chosen in <see cref="OpenDialogAsync"/>, once.</summary>
+    public string? TakePicked(string id)
+    {
+        lock (picked) return picked.Remove(id, out var p) ? p : null;
     }
 
     void OpenInBrowser(string url)

@@ -27,6 +27,7 @@ public sealed class TestApp : IAsyncDisposable
     public HttpClient Http { get; }
     public string BaseAddress { get; }
     readonly WebApplication app;
+    public IServiceProvider Services => app.Services;
 
     TestApp(WebApplication app, string configDir, string baseAddress)
     {

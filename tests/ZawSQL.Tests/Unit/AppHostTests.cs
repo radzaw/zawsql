@@ -1,4 +1,5 @@
 using System.Net;
+using Microsoft.Extensions.DependencyInjection;
 using ZawSQL.Tests.Infrastructure;
 
 namespace ZawSQL.Tests.Unit;
@@ -19,6 +20,39 @@ public class AppHostTests
         var index = await anon.GetStringAsync("/");
         Assert.Contains("<title>ZawSQL</title>", index);
         Assert.Contains("export class Grid", await anon.GetStringAsync("/js/grid.js"));
+    }
+
+    [Fact]
+    public async Task A_one_time_code_gives_out_the_token_once()
+    {
+        await using var app = await TestApp.StartAsync();
+        using var anon = new HttpClient { BaseAddress = new Uri(app.BaseAddress) };
+        async Task<HttpResponseMessage> Boot(string? code)
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Post, "/boot");
+            if (code != null) req.Headers.Add("X-Boot", code);
+            return await anon.SendAsync(req);
+        }
+        var code = app.Services.GetRequiredService<BootCodes>().Issue();
+
+        var first = await Boot(code);
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        Assert.Contains(TestApp.Token, await first.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Boot(code)).StatusCode); // used up
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Boot("0123456789abcdef0123456789abcdef")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Boot(null)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Native_file_dialogs_need_the_native_window_and_never_take_a_path()
+    {
+        await using var app = await TestApp.StartAsync(); // --no-browser: no window
+        var open = await app.PostAsync("/native/open", new { accept = ".sql", multiple = false });
+        Assert.False(open.Ok);
+        Assert.Contains("native window is not open", open.Error);
+        Assert.False((await app.PostAsync("/native/save", new { ext = ".sql", text = "x" })).Ok);
+        // Files are only handed out by the id of a dialog's answer.
+        Assert.Equal(HttpStatusCode.NotFound, (await app.Http.GetAsync("/api/native/file/" + Uri.EscapeDataString("C:\\Windows\\win.ini"))).StatusCode);
     }
 
     [Fact]
@@ -58,6 +92,23 @@ public class AppHostTests
         Assert.False(bad.Ok);
         Assert.Contains("queries", bad.Error);
         Assert.Equal("SELECT 1", (await app.GetAsync("/library")).Expect().GetProperty("queries")[0].GetProperty("sql").GetString());
+    }
+
+    [Fact]
+    public async Task Library_saves_based_on_an_older_revision_are_refused()
+    {
+        await using var app = await TestApp.StartAsync();
+        var empty = Array.Empty<object>();
+        Assert.Equal(1, (await app.CallAsync(HttpMethod.Put, "/library", new { revision = 0, queries = empty, snippets = empty })).Expect().GetProperty("revision").GetInt64());
+        Assert.Equal(2, (await app.CallAsync(HttpMethod.Put, "/library", new { revision = 1, queries = empty, snippets = empty })).Expect().GetProperty("revision").GetInt64());
+
+        // A window that loaded revision 1 must not overwrite revision 2.
+        var stale = await app.CallAsync(HttpMethod.Put, "/library", new { revision = 1, queries = new[] { new { id = "x" } }, snippets = empty });
+        Assert.False(stale.Ok);
+        Assert.Equal(Api.LibraryConflict, stale.Code);
+        var back = (await app.GetAsync("/library")).Expect();
+        Assert.Equal(2, back.GetProperty("revision").GetInt64());
+        Assert.Equal(0, back.GetProperty("queries").GetArrayLength());
     }
 
     [Fact]

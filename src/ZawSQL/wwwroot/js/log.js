@@ -1,6 +1,7 @@
 // SQL log panel at the bottom of the window, like HeidiSQL's: a timestamp (date, time, milliseconds) per line,
 // markers on slow statements, actions on a statement (open, explain, copy), a find bar with filters, and export.
-import { h, fmtLogTime, saveTextFile } from './util.js';
+import { h, fmtLogTime } from './util.js';
+import { saveTextFile } from './files.js';
 import { icon } from './icons.js';
 import { highlightSql } from './editor.js';
 import { contextMenu } from './dialogs.js';

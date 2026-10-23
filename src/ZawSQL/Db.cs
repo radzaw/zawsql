@@ -127,6 +127,10 @@ public static partial class Db
         finally { log?.Finish(line); }
     }
 
+    /// <summary>Whether this session reads a backslash in a string literal as an ordinary character.</summary>
+    public static async Task<bool> NoBackslashEscapesAsync(MySqlConnection c, CancellationToken ct) =>
+        (await ScalarAsync(c, null, "SELECT @@SESSION.sql_mode", ct) ?? "").Contains("NO_BACKSLASH_ESCAPES", StringComparison.OrdinalIgnoreCase);
+
     public static async Task<int> ExecAsync(MySqlConnection c, SqlLog? log, string sql, CancellationToken ct, params object?[] args)
     {
         await using var cmd = Cmd(c, log, sql, args, out var line);
@@ -241,8 +245,13 @@ public static class SqlLiteral
         _ => Quote(Values.Format(v, typeName) ?? ""),
     };
 
-    public static string Quote(string s)
+    /// <summary>
+    /// A string literal. Quotes are doubled (''), which every sql_mode reads the same way. Backslashes and control
+    /// characters are escaped unless the session has NO_BACKSLASH_ESCAPES, where a backslash is an ordinary character.
+    /// </summary>
+    public static string Quote(string s, bool noBackslashEscapes = false)
     {
+        if (noBackslashEscapes) return "'" + s.Replace("'", "''") + "'";
         var sb = new StringBuilder(s.Length + 2);
         sb.Append('\'');
         foreach (var ch in s)
@@ -250,7 +259,7 @@ public static class SqlLiteral
             switch (ch)
             {
                 case '\\': sb.Append(@"\\"); break;
-                case '\'': sb.Append(@"\'"); break;
+                case '\'': sb.Append("''"); break;
                 case '\0': sb.Append(@"\0"); break;
                 case '\n': sb.Append(@"\n"); break;
                 case '\r': sb.Append(@"\r"); break;

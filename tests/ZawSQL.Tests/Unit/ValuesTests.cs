@@ -43,7 +43,9 @@ public class ValuesTests
     [Fact]
     public void Quotes_sql_literals_safely()
     {
-        Assert.Equal(@"'it\'s \\ a\ntest\0'", SqlLiteral.Quote("it's \\ a\ntest\0"));
+        Assert.Equal(@"'it''s \\ a\ntest\0'", SqlLiteral.Quote("it's \\ a\ntest\0"));
+        // NO_BACKSLASH_ESCAPES: a backslash is an ordinary character there, only the quote needs doubling.
+        Assert.Equal("'it''s \\ a\ntest'", SqlLiteral.Quote("it's \\ a\ntest", noBackslashEscapes: true));
         Assert.Equal("NULL", SqlLiteral.FromValue(null, ""));
         Assert.Equal("0x0102", SqlLiteral.FromValue(new byte[] { 1, 2 }, ""));
         Assert.Equal("42", SqlLiteral.FromValue(42L, ""));

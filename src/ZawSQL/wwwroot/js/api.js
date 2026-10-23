@@ -3,17 +3,28 @@ import { sidFromPath } from './loglogic.js';
 
 const TOKEN_KEY = 'zawsql-token';
 
-function readToken() {
-  const m = location.hash.match(/token=([A-Za-z0-9_-]+)/);
+/** A one-time code (#boot=, from a browser's command line) is traded for the token once; #token= carries it as is. */
+async function boot(code) {
+  try {
+    const r = await fetch('/boot', { method: 'POST', headers: { 'X-Boot': code } });
+    return r.ok ? (await r.json()).token || '' : '';
+  } catch { return ''; }
+}
+
+async function readToken() {
+  const m = location.hash.match(/(token|boot)=([A-Za-z0-9_-]+)/);
   if (m) {
-    try { sessionStorage.setItem(TOKEN_KEY, m[1]); } catch { /* storage unavailable */ }
     history.replaceState(null, '', location.pathname + location.search);
-    return m[1];
+    const t = m[1] === 'boot' ? await boot(m[2]) : m[2];
+    if (t) {
+      try { sessionStorage.setItem(TOKEN_KEY, t); } catch { /* storage unavailable */ }
+      return t;
+    }
   }
   try { return sessionStorage.getItem(TOKEN_KEY) || ''; } catch { return ''; }
 }
 
-export const token = readToken();
+export const token = await readToken();
 export const pageId = crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2);
 
 let logSink = () => {};
@@ -25,6 +36,8 @@ export class ApiError extends Error {
 
 /** Error code: the SSH server's host key isn't trusted yet (data: host, port, fingerprint). */
 export const SSH_HOSTKEY_UNKNOWN = 9001;
+/** Error code: another window saved the library since this one loaded it. */
+export const LIBRARY_CONFLICT = 9002;
 
 function qs(q) {
   if (!q) return '';

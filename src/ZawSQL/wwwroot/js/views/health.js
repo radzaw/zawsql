@@ -1,7 +1,8 @@
 // Host tab › Health: the server health report. The facts come from /s/{sid}/health; healthlogic.js turns them into
 // findings (what is wrong, how serious, how to fix it) shown by area, with the fix SQL one click from a query tab,
 // and saves the whole report as a self-contained HTML page.
-import { h, fmtBytes, fmtNum, saveTextFile } from '../util.js';
+import { h, fmtBytes, fmtNum } from '../util.js';
+import { saveTextFile } from '../files.js';
 import { icon } from '../icons.js';
 import { get } from '../api.js';
 import { fmtSeconds } from '../insightlogic.js';
@@ -147,7 +148,7 @@ export class HealthView {
           h('pre', { class: 'hl-sql' }, sql),
           h('div', { class: 'hl-fix-buttons' },
             h('button', { class: 'btn', onclick: () => navigator.clipboard.writeText(sql) }, 'Copy'),
-            h('button', { class: 'btn', title: ro ? 'Opens the SQL; this session is read-only, so it won\'t run here' : 'Opens the SQL in a new query tab to review and run', onclick: () => this.app.openQueryTab(`-- ${fd.title}\n-- Review before running.\n${sql}\n`, 'Health fix') }, 'Open in query tab'))) : ''));
+            h('button', { class: 'btn', title: ro ? 'Opens the SQL; this session is read-only, so it won\'t run here' : 'Opens the SQL in a new query tab to review and run', onclick: () => this.app.openQueryTab(`-- ${fd.title.replace(/\s+/g, ' ')}\n-- Review before running.\n${sql}\n`, 'Health fix') }, 'Open in query tab'))) : ''));
   }
 
   overviewCard(o) {
