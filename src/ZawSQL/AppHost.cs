@@ -94,6 +94,16 @@ public static class AppHost
             url += $"&theme={theme.GetString()}";
         return url;
     }
+
+    /// <summary>The saved interface zoom in percent (prefs.uiZoom); 100 when unset or out of range.</summary>
+    public static int SavedZoom(WebApplication app)
+    {
+        var state = app.Services.GetRequiredService<SessionStore>().LoadState();
+        return state.ValueKind == JsonValueKind.Object && state.TryGetProperty("prefs", out var prefs) && prefs.ValueKind == JsonValueKind.Object
+            && prefs.TryGetProperty("uiZoom", out var zoom) && zoom.ValueKind == JsonValueKind.Number && zoom.TryGetInt32(out var z)
+            && z is >= AppWindow.MinZoom and <= AppWindow.MaxZoom
+            ? z : 100;
+    }
 }
 
 /// <summary>One-time codes that open a window: each gives out the API token once, within a few minutes.</summary>

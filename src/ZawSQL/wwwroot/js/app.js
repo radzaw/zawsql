@@ -1,10 +1,11 @@
 // ZawSQL main module: layout, menus, toolbar, tabs and the glue between tree and views.
 import { get, post, put, setLogSink, startHeartbeat, ApiError, SSH_HOSTKEY_UNKNOWN } from './api.js';
-import { h, qi, debounce, makeSplitter, fmtElapsed, NATIVE, openExternal } from './util.js';
+import { h, qi, debounce, makeSplitter, fmtElapsed, NATIVE, openExternal, ZOOM_STEPS, nextZoom } from './util.js';
 import { icon } from './icons.js';
 import { Tree } from './tree.js';
 import { LogPanel } from './log.js';
 import { KEYWORDS, FUNCTIONS } from './editor.js';
+import { builtinSignature, paramList } from './sqlsigs.js';
 import { isReadOnlyStatement, lacksWhere } from './sqlcheck.js';
 import { contextMenu, closeMenus, menuIsOpen, alertError, confirmDlg, promptDlg, modal, modalIsOpen } from './dialogs.js';
 import { HostView } from './views/host.js';
@@ -24,7 +25,7 @@ import { sortGroups } from './multirunlogic.js';
 import { sessionManager, confirmHostKey, exportDumpDialog, runSqlFile, createDatabaseDialog, preferencesDialog, aboutDialog } from './views/tools.js';
 
 const TYPE_LABEL = { table: 'Table', view: 'View', procedure: 'Procedure', function: 'Function', trigger: 'Trigger', event: 'Event' };
-const DEFAULT_PREFS = { rowsPerPage: 1000, maxResultRows: 10000, theme: 'system', editorFontSize: 13, confirmNoWhere: true, formatKeywordCase: 'upper', formatIndent: '2', checkUpdates: true, showWhatsNew: true, txDefault: 'auto', logTimestamps: true, slowLogMs: DEFAULT_SLOW_MS };
+const DEFAULT_PREFS = { rowsPerPage: 1000, maxResultRows: 10000, theme: 'system', uiZoom: 100, editorFontSize: 13, confirmNoWhere: true, formatKeywordCase: 'upper', formatIndent: '2', checkUpdates: true, showWhatsNew: true, txDefault: 'auto', logTimestamps: true, slowLogMs: DEFAULT_SLOW_MS };
 
 // ---------------------------------------------------------------- tabs
 
@@ -179,6 +180,17 @@ class App {
     document.getElementById('db-filter').addEventListener('input', e => { this.tree.dbFilter = e.target.value; this.tree.render(); });
     document.getElementById('tbl-filter').addEventListener('input', e => { this.tree.tblFilter = e.target.value; this.tree.render(); });
     document.addEventListener('keydown', e => this.globalKey(e));
+    // Ctrl+wheel (and touchpad pinch) goes through the zoom preference too, so it is kept for the next start.
+    if (NATIVE) {
+      let lastWheelZoom = 0;
+      document.addEventListener('wheel', e => {
+        if (!e.ctrlKey || !e.deltaY) return;
+        e.preventDefault();
+        if (e.timeStamp - lastWheelZoom < 150) return; // one step per flick, not per wheel event
+        lastWheelZoom = e.timeStamp;
+        this.setZoom(nextZoom(this.prefs.uiZoom, -e.deltaY));
+      }, { passive: false });
+    }
     window.addEventListener('beforeunload', e => {
       this.saveState();
       // Closing the window closes the connections, which rolls back open transactions: let the browser ask.
@@ -219,6 +231,8 @@ class App {
     const dark = p.theme === 'dark' || (p.theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
     document.documentElement.style.setProperty('--ed-font-size', p.editorFontSize + 'px');
+    // The web view zooms the whole page, so text, inputs, the grid and the editors all scale together.
+    if (NATIVE) window.external.sendMessage('zoom:' + p.uiZoom);
     this.log?.markAll(); // the slow statement threshold may have changed
     // The app window's title bar follows theme-color in Chromium app windows.
     document.querySelector('meta[name=theme-color]')?.setAttribute('content', dark ? '#14161b' : '#f3f4f7');
@@ -228,6 +242,15 @@ class App {
       this.themeBtn.innerHTML = icon(dark ? 'sun' : 'moon');
       this.themeBtn.title = dark ? 'Switch to light mode' : 'Switch to dark mode';
     }
+  }
+
+  /** Sets the interface zoom (percent) and keeps it. */
+  setZoom(z) {
+    if (z === this.prefs.uiZoom) return;
+    this.prefs.uiZoom = z;
+    this.applyPrefs();
+    this.saveStateSoon();
+    this.setStatus(`Zoom ${z}%`);
   }
 
   /** Toolbar toggle: flips between explicit light and dark (Tools › Theme also offers "Follow system"). */
@@ -356,6 +379,13 @@ class App {
         { label: 'Import CSV / Excel…', icon: 'import', disabled: !s.sid || ro, onClick: () => importDialog(this, s.sid, s.db, s.obj?.type === 'table' ? s.obj.name : null) },
         '-',
         { label: 'Theme', submenu: [['system', 'Follow system'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) => ({ label: l, checked: this.prefs.theme === v, onClick: () => { this.prefs.theme = v; this.applyPrefs(); this.saveStateSoon(); } })) },
+        ...(NATIVE ? [{ label: 'Zoom', submenu: [
+          { label: 'Zoom in', shortcut: 'Ctrl+=', onClick: () => this.setZoom(nextZoom(this.prefs.uiZoom, 1)) },
+          { label: 'Zoom out', shortcut: 'Ctrl+-', onClick: () => this.setZoom(nextZoom(this.prefs.uiZoom, -1)) },
+          { label: 'Actual size', shortcut: 'Ctrl+0', onClick: () => this.setZoom(100) },
+          '-',
+          ...ZOOM_STEPS.map(z => ({ label: z + '%', checked: this.prefs.uiZoom === z, onClick: () => this.setZoom(z) })),
+        ] }] : []),
         { label: 'Preferences…', icon: 'settings', onClick: () => preferencesDialog(this) },
       ]],
       ['Help', () => [
@@ -419,17 +449,24 @@ class App {
   shortcutsDialog() {
     const rows = [
       ['F5', 'Refresh tree / current tab'], ['F9', 'Execute all SQL in the query tab'], ['Ctrl+F9', 'Execute selection'],
-      ['Ctrl+Shift+F9 / Ctrl+Enter', 'Execute statement at the caret'], ['Ctrl+Space', 'Autocomplete'], ['Ctrl+/', 'Toggle line comment'],
+      ['Ctrl+Shift+F9 / Ctrl+Enter', 'Execute statement at the caret'], ['Ctrl+Space', 'Autocomplete'], ['Ctrl+Shift+Space', 'Parameter hint for the call at the caret'], ['Ctrl+/', 'Toggle line comment'],
       ['Tab / Shift+Tab', 'Indent / outdent'], ['Tab after a trigger', 'Expand snippet (then Tab: next field)'],
       ['Ctrl+Shift+E', 'Visual EXPLAIN of the statement at the cursor'], ['Ctrl+Shift+F', 'Format SQL (selection or all)'], ['Ctrl+S', 'Save query to library'], ['Ctrl+Shift+S', 'Save query to library as new'], ['Ctrl+T', 'New query tab'], ['F2 / Enter / typing', 'Edit grid cell'],
       ['Ctrl+Enter', 'Apply multi-line cell edit'], ['Insert', 'Insert row'], ['Ctrl+Delete', 'Delete selected rows'],
       ['Ctrl+Shift+N', 'Set cell to NULL'], ['Esc', 'Cancel editing'], ['Ctrl+C', 'Copy selected cells'],
+      ['Ctrl+= / Ctrl+- / Ctrl+0', 'Zoom in / out / actual size (also Ctrl+wheel)'],
     ];
     return modal({ title: 'Keyboard shortcuts', width: 480, body: h('table', { class: 'kbd-table' }, rows.map(([k, d]) => h('tr', null, h('td', null, h('kbd', null, k)), h('td', null, d)))) });
   }
 
   globalKey(e) {
     const ctrl = e.ctrlKey || e.metaKey;
+    // Zoom works behind dialogs too. A browser has its own zoom (and keeps it per site).
+    if (NATIVE && ctrl && !e.altKey && ['=', '+', '-', '0'].includes(e.key)) {
+      e.preventDefault(); // WebView2 would zoom by itself, without the preference knowing
+      this.setZoom(e.key === '0' ? 100 : nextZoom(this.prefs.uiZoom, e.key === '-' ? -1 : 1));
+      return;
+    }
     // Behind a dialog the shortcuts would act on the page it is about (F9 running again under its confirmation,
     // Ctrl+W closing the tab it asks about); only the browser's own reload / save stay blocked.
     if (modalIsOpen()) {
@@ -1040,6 +1077,36 @@ class App {
     return this.colCache.get(k);
   }
 
+  /** Stored procedures and functions with their parameters; kept with the columns, so it is refreshed with them. */
+  async getRoutines(sid, db) {
+    const k = `${sid}|${db}|\0routines`;
+    if (!this.colCache.has(k)) {
+      this.colCache.set(k, get(`/s/${sid}/routines`, { db }, { quiet: true }).catch(() => { this.colCache.delete(k); return []; }));
+    }
+    return this.colCache.get(k);
+  }
+
+  /** The parameter hint for a call in a SQL editor: a built-in function, else a stored routine (db.name or name). */
+  async signature({ name, qualifier }) {
+    if (!qualifier) {
+      const b = builtinSignature(name);
+      if (b) return b;
+    }
+    const { sid } = this.sel;
+    const db = qualifier || this.sel.db;
+    if (!sid || !db) return null;
+    const n = name.toLowerCase();
+    const r = (await this.getRoutines(sid, db)).find(x => x.name.toLowerCase() === n);
+    if (!r) return null;
+    return {
+      name: qualifier ? `${qualifier}.${r.name}` : r.name,
+      // A procedure's parameters have a mode (IN, OUT, INOUT); a function's are always IN and have none.
+      params: r.params.map(p => [r.type === 'procedure' ? p.mode : null, p.name, p.type].filter(Boolean).join(' ')),
+      returns: r.returns || null,
+      doc: r.comment || (r.type === 'procedure' ? 'Stored procedure' : 'Stored function'),
+    };
+  }
+
   // ---------- autocompletion ----------
 
   async complete({ text, prefix, qualifier }) {
@@ -1074,7 +1141,10 @@ class App {
     }
     if (prefix) {
       for (const sn of this.library.snippets) if (sn.trigger) items.push({ label: sn.trigger, icon: 'snippet', detail: sn.name, snippet: sn.body });
-      for (const k of FUNCTIONS) items.push({ label: k, icon: 'function', detail: 'function', insert: k + '(' });
+      for (const k of FUNCTIONS) {
+        const sig = builtinSignature(k);
+        items.push({ label: k, icon: 'function', detail: sig ? paramList(sig) : 'function', insert: k + '(' });
+      }
       for (const k of KEYWORDS) if (!FUNCTIONS.has(k)) items.push({ label: k, detail: 'keyword' });
     }
     return items;

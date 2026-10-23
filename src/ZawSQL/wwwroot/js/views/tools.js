@@ -1,5 +1,5 @@
 // Dialogs: session manager, exports, SQL file import, create database, preferences, about.
-import { h, esc, qi, sqlStr, fmtBytes, fmtNum, isNumericKind } from '../util.js';
+import { h, esc, qi, sqlStr, fmtBytes, fmtNum, isNumericKind, NATIVE, ZOOM_STEPS } from '../util.js';
 import { pickFile, saveTextFile, NATIVE_DIALOGS } from '../files.js';
 import { icon } from '../icons.js';
 import { get, post, del, urlWithToken, SSH_HOSTKEY_UNKNOWN } from '../api.js';
@@ -601,6 +601,7 @@ export async function preferencesDialog(app) {
   const checkUpdates = h('input', { type: 'checkbox', checked: p.checkUpdates !== false });
   const showWhatsNew = h('input', { type: 'checkbox', checked: p.showWhatsNew !== false });
   const opt = (pairs, v) => h('select', { class: 'inp' }, pairs.map(([k, l]) => h('option', { value: k, selected: k === String(v) }, l)));
+  const zoom = opt(ZOOM_STEPS.map(z => [String(z), z + '%']), p.uiZoom);
   const kwCase = opt([['upper', 'UPPERCASE'], ['lower', 'lowercase'], ['keep', 'As typed']], p.formatKeywordCase);
   const indent = opt([['2', '2 spaces'], ['4', '4 spaces'], ['tab', 'Tab']], p.formatIndent);
   const txDefault = opt(TX_DEFAULTS, p.txDefault || 'auto');
@@ -612,6 +613,9 @@ export async function preferencesDialog(app) {
       h('label', { class: 'frow' }, h('span', null, 'Data tab rows per page:'), rows),
       h('label', { class: 'frow' }, h('span', null, 'Max rows in query results:'), maxRows),
       h('label', { class: 'frow' }, h('span', null, 'Theme:'), theme),
+      NATIVE
+        ? h('label', { class: 'frow', title: 'Scales the whole interface: menus, dialogs, text boxes, the grid and the SQL editor. Also Ctrl+= / Ctrl+- / Ctrl+0 and Ctrl+wheel.' }, h('span', null, 'Interface zoom:'), zoom)
+        : h('div', { class: 'frow' }, h('span', null, 'Interface zoom:'), h('span', { class: 'muted' }, "Use the browser's zoom (Ctrl+= / Ctrl+-).")),
       h('label', { class: 'frow' }, h('span', null, 'SQL editor font size:'), font),
       h('label', { class: 'frow' }, h('span', null, 'Formatter keywords:'), kwCase),
       h('label', { class: 'frow' }, h('span', null, 'Formatter indent:'), indent),
@@ -627,6 +631,7 @@ export async function preferencesDialog(app) {
     rowsPerPage: Math.max(10, parseInt(rows.value, 10) || 1000),
     maxResultRows: Math.max(1, parseInt(maxRows.value, 10) || 10000),
     theme: theme.value,
+    uiZoom: Number(zoom.value),
     editorFontSize: Math.max(9, parseInt(font.value, 10) || 13),
     confirmNoWhere: noWhere.checked,
     checkUpdates: checkUpdates.checked,

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using Photino.NET;
 
@@ -14,6 +15,9 @@ public sealed record NativeSaveRequest(string? Description, string? Ext, string?
 /// </summary>
 public sealed class AppWindow(AppOptions opts, ILogger<AppWindow> log)
 {
+    /// <summary>The interface zoom range in percent (Preferences › Interface zoom).</summary>
+    public const int MinZoom = 50, MaxZoom = 300;
+
     PhotinoWindow? window;
     volatile bool open;
     // Set once the window exists: a failure after that is a real error, not a missing web view.
@@ -27,8 +31,9 @@ public sealed class AppWindow(AppOptions opts, ILogger<AppWindow> log)
     /// <summary>
     /// Shows the window and blocks until it's closed. Returns false, having shown nothing, when the platform's
     /// web view isn't available (for example WebKitGTK missing on Linux); the caller then uses a browser window.
+    /// <paramref name="zoom"/>: the saved interface zoom in percent, so the page doesn't first paint at 100%.
     /// </summary>
-    public bool Run(string url, IHostApplicationLifetime life)
+    public bool Run(string url, IHostApplicationLifetime life, int zoom = 100)
     {
         // Without a display GTK ends the process instead of failing, so don't even try (e.g. over SSH).
         if (OperatingSystem.IsLinux() && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY"))
@@ -49,6 +54,7 @@ public sealed class AppWindow(AppOptions opts, ILogger<AppWindow> log)
                 .SetDevToolsEnabled(false)
                 .SetTemporaryFilesPath(Path.Combine(opts.ConfigDir, "webview"));
             if (IconFile() is { } icon) w.SetIconFile(icon);
+            if (zoom != 100) w.Zoom = Math.Clamp(zoom, MinZoom, MaxZoom);
             w.WindowCreated += (_, _) =>
             {
                 created = open = true;
@@ -127,7 +133,8 @@ public sealed class AppWindow(AppOptions opts, ILogger<AppWindow> log)
 
     /// <summary>
     /// Messages from the page: "ready" (it handles close requests), "close" (it agreed to close), "close-cancel"
-    /// (the user kept the window), "theme:dark" / "theme:light" (the title bar follows the app's theme) and
+    /// (the user kept the window), "theme:dark" / "theme:light" (the title bar follows the app's theme),
+    /// "zoom:&lt;percent&gt;" (the interface zoom: the web view scales the whole page, grid and editors included) and
     /// "open:&lt;url&gt;" (a web page for the default browser, not a web view popup).
     /// </summary>
     void OnMessage(PhotinoWindow w, string? message)
@@ -139,6 +146,13 @@ public sealed class AppWindow(AppOptions opts, ILogger<AppWindow> log)
             case "close-cancel": closeAskedAt = default; break;
             case "theme:dark" or "theme:light" when OperatingSystem.IsWindows():
                 DarkTitleBar(w.WindowHandle, message == "theme:dark");
+                break;
+            case not null when message.StartsWith("zoom:", StringComparison.Ordinal):
+                if (int.TryParse(message.AsSpan(5), NumberStyles.None, CultureInfo.InvariantCulture, out var zoom))
+                {
+                    try { w.Zoom = Math.Clamp(zoom, MinZoom, MaxZoom); }
+                    catch (ApplicationException) { /* the window is going away */ }
+                }
                 break;
             case not null when message.StartsWith("open:", StringComparison.Ordinal):
                 OpenInBrowser(message[5..]);

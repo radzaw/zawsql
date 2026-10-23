@@ -62,7 +62,7 @@ The backend is an ASP.NET Core app that talks to the database (via [MySqlConnect
   - Read-only sessions allow only Check and Checksum; production sessions ask before the others.
 - **Data tab**: virtualized grid with paging, sorting, WHERE filter, quick search and quick filters. WHERE filters that ran are remembered per table (the last 20, most recent first) and offered again from the **Recent** drop-down next to the filter, or with Alt+↓ in the filter box. You can edit in place (enum dropdowns, multi-line editor), insert, delete and set NULL. It works on tables without a primary key too.
   - **Full text on hover:** when a value doesn't fit its cell (cut off, or shown with ¶ for line breaks), resting the mouse on it shows the whole text with its line breaks, the number of characters and lines, and JSON indented. Very long values show the first 4,000 characters. The same works in query results.
-- **Query tabs**: SQL editor with syntax highlighting, line numbers and autocompletion (tables, columns incl. aliases, keywords, functions). Run all, the selection or the current statement. Supports `DELIMITER` and multiple result sets, has a Stop button and query history. Tabs are restored on the next start.
+- **Query tabs**: SQL editor with syntax highlighting, line numbers and autocompletion (tables, columns incl. aliases, keywords, functions). **Parameter hints**: typing `(` or `,` in a call shows the function's signature with the current argument highlighted, for built-in functions and for the stored procedures and functions of the database (with their IN/OUT parameters and return type). Ctrl+Shift+Space shows it again, Esc hides it. Run all, the selection or the current statement. Supports `DELIMITER` and multiple result sets, has a Stop button and query history. Tabs are restored on the next start.
 - **Query parameters**: write `:name` placeholders in a query tab (`WHERE created >= :from AND status = :status LIMIT :n`), and running it asks for their values first. They are highlighted in the editor and kept as written (also in saved queries and the history). Only the statements that run have their placeholders filled in.
   - Each value has a type: **Text** (quoted and escaped), **Number** (checked), **NULL**, or **SQL as written** for lists like `1, 2, 3` or expressions like `NOW() - INTERVAL 1 DAY`. A placeholder after LIMIT or OFFSET starts as Number.
   - A preview shows the statement with the values filled in. The production and WHERE-less confirmations and the SQL log see that final statement.
@@ -292,6 +292,7 @@ Configuration is stored in `%APPDATA%\ZawSQL` on Windows and `~/.config/ZawSQL` 
 | F9 / Ctrl+F9 / Ctrl+Shift+F9 (Ctrl+Enter) | Execute all / selection / current statement |
 | Ctrl+Alt+F9 | Run on several servers |
 | Ctrl+Space | Autocomplete (also opens after typing `.`) |
+| Ctrl+Shift+Space | Parameter hint for the call at the caret |
 | Ctrl+/ | Toggle comment |
 | Ctrl+T | New query tab |
 | Ctrl+Shift+E | Visual EXPLAIN of the statement at the cursor |

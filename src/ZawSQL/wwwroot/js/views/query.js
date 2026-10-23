@@ -32,6 +32,7 @@ export class QueryView {
     this.editor = new SqlEditor({
       value: sql,
       completer: o => this.app.complete(o),
+      signatures: c => this.app.signature(c),
       onChange: () => { this.app.saveStateSoon(); this.updateSavedState(); },
       snippets: { lookup: t => findSnippet(app.library.snippets, t), vars: () => app.snippetVars() },
       onFormat: () => app.formatEditor(this.editor),

@@ -24,6 +24,25 @@ public class BrowseTests(TestDatabase t)
     }
 
     [DbFact]
+    public async Task Routines_come_with_their_parameters_for_editor_hints()
+    {
+        var list = (await t.App.GetAsync($"/s/{t.Sid}/routines?db={t.Db}")).Expect().EnumerateArray().ToList();
+        var proc = list.Single(r => r.GetProperty("name").GetString() == "top_customers");
+        Assert.Equal("procedure", proc.GetProperty("type").GetString());
+        Assert.Equal(JsonValueKind.Null, proc.GetProperty("returns").ValueKind);
+        var p = Assert.Single(proc.GetProperty("params").EnumerateArray());
+        Assert.Equal("IN", p.GetProperty("mode").GetString());
+        Assert.Equal("n", p.GetProperty("name").GetString());
+        Assert.Equal("int", p.GetProperty("type").GetString()!.ToLowerInvariant());
+
+        // A function without parameters: only its return type, no parameter row.
+        var fn = list.Single(r => r.GetProperty("name").GetString() == "sneaky");
+        Assert.Equal("function", fn.GetProperty("type").GetString());
+        Assert.StartsWith("int", fn.GetProperty("returns").GetString()!.ToLowerInvariant());
+        Assert.Empty(fn.GetProperty("params").EnumerateArray());
+    }
+
+    [DbFact]
     public async Task Table_metadata_includes_columns_indexes_foreign_keys_and_create_code()
     {
         var c = (await t.App.GetAsync($"/s/{t.Sid}/table?db={t.Db}&table=customers")).Expect();

@@ -236,6 +236,30 @@ public static class Api
         s.MapGet("/columns", (string sid, string db, string table, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, _, _) =>
             (await Db.RowsAsync(c, null, $"SHOW COLUMNS FROM {Db.Q(db, table)}", ct)).Select(r => new { name = r["Field"], type = r["Type"] }).ToList()));
 
+        // Parameter hints in the SQL editor: each stored procedure and function with its parameters (and return type).
+        s.MapGet("/routines", (string sid, string db, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, _, _) =>
+        {
+            var rows = await Db.RowsAsync(c, null, """
+                SELECT r.ROUTINE_NAME AS name, LOWER(r.ROUTINE_TYPE) AS type, r.ROUTINE_COMMENT AS comment,
+                       p.ORDINAL_POSITION AS pos, p.PARAMETER_MODE AS mode, p.PARAMETER_NAME AS param, p.DTD_IDENTIFIER AS dtype
+                FROM information_schema.ROUTINES r
+                LEFT JOIN information_schema.PARAMETERS p
+                  ON p.SPECIFIC_SCHEMA = r.ROUTINE_SCHEMA AND p.SPECIFIC_NAME = r.ROUTINE_NAME AND p.ROUTINE_TYPE = r.ROUTINE_TYPE
+                WHERE r.ROUTINE_SCHEMA = @p0
+                ORDER BY r.ROUTINE_NAME, r.ROUTINE_TYPE, p.ORDINAL_POSITION
+                """, ct, db);
+            // Position 0 is a function's return value; a routine without parameters comes with one row of NULLs.
+            return rows.GroupBy(r => (r["name"], r["type"])).Select(g => new
+            {
+                name = g.Key.Item1,
+                type = g.Key.Item2,
+                comment = g.First()["comment"],
+                returns = g.FirstOrDefault(r => r["pos"] == "0")?["dtype"],
+                @params = g.Where(r => r["pos"] is { } p && p != "0")
+                    .Select(r => new { mode = r["mode"], name = r["param"], type = r["dtype"] }).ToList(),
+            }).ToList();
+        }));
+
         s.MapGet("/create", (string sid, string db, string type, string name, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, _, log) =>
             new { code = await TableMeta.ShowCreateAsync(c, log, db, type, name, ct) }));
 

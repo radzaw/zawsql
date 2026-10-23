@@ -1,8 +1,9 @@
 // Lightweight SQL editor: a transparent <textarea> over a syntax-highlighted <pre>,
-// with line numbers, auto-indent, block indent, comment toggling, autocompletion and snippets.
+// with line numbers, auto-indent, block indent, comment toggling, autocompletion, parameter hints and snippets.
 import { h, esc } from './util.js';
 import { icon } from './icons.js';
 import { expandSnippet } from './library.js';
+import { callAt, activeParam } from './sqlsigs.js';
 
 export const KEYWORDS = new Set(`ACCESSIBLE ADD AFTER ALGORITHM ALL ALTER ANALYZE AND AS ASC AUTO_INCREMENT BEFORE BEGIN BETWEEN BIGINT BINARY BIT
 BLOB BOOL BOOLEAN BOTH BY CALL CASCADE CASE CHANGE CHAR CHARACTER CHARSET CHECK COLLATE COLUMN COLUMNS COMMENT COMMIT CONDITION
@@ -60,9 +61,12 @@ const measureCtx = document.createElement('canvas').getContext('2d');
 export class SqlEditor {
   /**
    * `snippets`: { lookup(trigger) -> {body}|null, vars() -> {DB, TABLE, …} } enables Tab expansion of snippet triggers.
+   * `signatures`: async ({ name, qualifier }) -> { name, params: [string], returns?, doc? } | null enables parameter
+   * hints inside a call's parentheses.
    */
-  constructor({ value = '', completer = null, onChange = null, readOnly = false, placeholder = '', snippets = null, onFormat = null } = {}) {
+  constructor({ value = '', completer = null, signatures = null, onChange = null, readOnly = false, placeholder = '', snippets = null, onFormat = null } = {}) {
     this.completer = completer;
+    this.signatures = signatures;
     this.onFormat = onFormat;
     this.snippets = snippets;
     this.onChange = onChange;
@@ -85,10 +89,15 @@ export class SqlEditor {
       this.scheduleUpdate();
       this.onChange?.();
       if (this.popup) this.refreshCompletion();
+      // Typing "(" or "," shows the hint; any other edit keeps an open one up to date.
+      if (this.signatures && (this.sigEl || /[(,]/.test(this.ta.value[this.ta.selectionStart - 1] ?? ''))) this.updateSignature();
     });
     this.ta.addEventListener('scroll', () => this.syncScroll());
     this.ta.addEventListener('keydown', e => this.onKey(e));
-    this.ta.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== this.ta) this.closeCompletion(); }, 150));
+    // The caret moved without an edit: the hint may now be for another argument, or another call.
+    this.ta.addEventListener('keyup', e => { if (this.sigEl && /^(Arrow|Home|End|Page)/.test(e.key)) this.updateSignature(); });
+    this.ta.addEventListener('mouseup', () => { if (this.sigEl) this.updateSignature(); });
+    this.ta.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== this.ta) { this.closeCompletion(); this.closeSignature(); } }, 150));
     this.ta.addEventListener('mousedown', () => this.closeCompletion());
     new ResizeObserver(() => this.syncScroll()).observe(this.ta);
     this.update();
@@ -144,6 +153,7 @@ export class SqlEditor {
     this.pre.scrollLeft = ta.scrollLeft;
     this.gutterInner.style.transform = `translateY(${-ta.scrollTop}px)`;
     if (this.popup) this.positionPopup();
+    if (this.sigEl) this.positionSignature();
   }
 
   /** Inserts text at the caret, keeping the browser's undo stack intact. */
@@ -168,6 +178,8 @@ export class SqlEditor {
       if (e.key === 'Enter' || e.key === 'Tab') { this.acceptCompletion(); e.preventDefault(); return; }
       if (e.key === 'Escape') { this.closeCompletion(); e.preventDefault(); e.stopPropagation(); return; }
     }
+    if (this.sigEl && e.key === 'Escape') { this.closeSignature(); e.preventDefault(); e.stopPropagation(); return; }
+    if (this.signatures && e.key === ' ' && e.ctrlKey && e.shiftKey) { e.preventDefault(); this.updateSignature(); return; }
     if (this.ta.readOnly) return;
     if (this.snip && e.key === 'Tab' && !e.ctrlKey && !e.altKey) { e.preventDefault(); this.gotoStop(this.snip.i + (e.shiftKey ? -1 : 1)); return; }
     if (this.snip && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.endSnippet(); return; }
@@ -344,6 +356,49 @@ export class SqlEditor {
     this.compSeq = (this.compSeq || 0) + 1;
     this.popup?.remove();
     this.popup = null;
+  }
+
+  // ---------- parameter hints ----------
+
+  /** Shows (or updates, or closes) the hint for the call the caret is in. */
+  async updateSignature() {
+    const pos = this.ta.selectionStart;
+    const call = this.ta.selectionEnd === pos ? callAt(this.ta.value, pos) : null;
+    const seq = (this.sigSeq = (this.sigSeq || 0) + 1);
+    let sig = null;
+    if (call) {
+      try { sig = await this.signatures(call); } catch { /* no hint */ }
+    }
+    if (seq !== this.sigSeq) return;
+    if (!sig || document.activeElement !== this.ta) return this.closeSignature();
+    const act = activeParam(sig.params, call.argIndex);
+    if (!this.sigEl) {
+      this.sigEl = h('div', { class: 'sqled-sig' });
+      this.sigEl.addEventListener('mousedown', e => e.preventDefault()); // keep the focus in the editor
+      this.main.append(this.sigEl);
+    }
+    this.sigEl.innerHTML = `<div class="sig-line"><span class="sig-name">${esc(sig.name)}</span>(${
+      sig.params.map((p, i) => `<span class="sig-p${i === act ? ' on' : ''}">${esc(p)}</span>`).join(', ')})${
+      sig.returns ? ` <span class="sig-ret">→ ${esc(sig.returns)}</span>` : ''}</div>${sig.doc ? `<div class="sig-doc">${esc(sig.doc)}</div>` : ''}`;
+    this.sigOpen = call.open;
+    this.positionSignature();
+  }
+
+  /** Above the caret's line, starting at the call's "("; below the line when there is no room above. */
+  positionSignature() {
+    const lh = parseFloat(getComputedStyle(this.ta).lineHeight) || 18;
+    const { x } = this.caretXY(this.sigOpen);
+    const { y } = this.caretXY(this.ta.selectionStart);
+    const maxX = Math.max(0, this.main.clientWidth - this.sigEl.offsetWidth - 4);
+    this.sigEl.style.left = Math.max(0, Math.min(x - 8, maxX)) + 'px';
+    const above = y - lh - this.sigEl.offsetHeight - 2;
+    this.sigEl.style.top = (above >= 0 ? above : y + 2) + 'px';
+  }
+
+  closeSignature() {
+    this.sigSeq = (this.sigSeq || 0) + 1;
+    this.sigEl?.remove();
+    this.sigEl = null;
   }
 
   // ---------- snippets ----------

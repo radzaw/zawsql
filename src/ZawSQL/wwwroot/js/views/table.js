@@ -623,7 +623,7 @@ export class TableView {
 
   renderCodeEditor() {
     const m = this.m;
-    this.editor = new SqlEditor({ value: m.origCode, onChange: () => this.codeChanged(), completer: o => this.app.complete(o), readOnly: this.readOnly(), onFormat: () => this.app.formatEditor(this.editor) });
+    this.editor = new SqlEditor({ value: m.origCode, onChange: () => this.codeChanged(), completer: o => this.app.complete(o), signatures: c => this.app.signature(c), readOnly: this.readOnly(), onFormat: () => this.app.formatEditor(this.editor) });
     const formatBtn = h('button', { class: 'btn', title: 'Format the code (Ctrl+Shift+F)', disabled: this.readOnly(), onclick: () => this.app.formatEditor(this.editor) }, 'Format');
     this.saveBtn = h('button', { class: 'btn primary', onclick: () => this.saveCode() }, 'Save');
     this.discardBtn = h('button', { class: 'btn', onclick: () => { this.editor.value = m.origCode; this.codeChanged(); } }, 'Discard');

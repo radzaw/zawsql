@@ -508,7 +508,17 @@ select.cell-inp { padding: 0 4px; }
 .pi.sel { background: var(--accent-soft); }
 .pi .pl { flex: 1; overflow: hidden; text-overflow: ellipsis; }
 .pi.sel .pl { font-weight: 600; }
-.pi .pk { color: var(--faint); font-size: 11px; padding-left: 12px; }
+.pi .pk { color: var(--faint); font-size: 11px; padding-left: 12px; min-width: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis; }
+.sqled-sig {
+  position: absolute; z-index: 21; max-width: min(620px, calc(100% - 8px)); padding: 5px 9px;
+  background: var(--raised); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow-m); font: var(--font); cursor: default;
+}
+.sig-line { font-family: var(--mono); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.sig-name { color: var(--t-fn); font-weight: 600; }
+.sig-p { color: var(--muted); }
+.sig-p.on { color: var(--ink); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+.sig-ret { color: var(--muted); }
+.sig-doc { margin-top: 2px; color: var(--muted); font-size: 11.5px; }
 .pi.sel .pk { color: var(--accent); }
 .pi:not(:has(svg)) .pl { padding-left: 22px; }
 

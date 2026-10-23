@@ -3,6 +3,15 @@
 /** Running in the native window (Photino injects window.external.sendMessage) rather than a browser. */
 export const NATIVE = typeof globalThis.window?.external?.sendMessage === 'function';
 
+/** Interface zoom levels in percent (Preferences, Tools › Zoom, Ctrl+= / Ctrl+-). */
+export const ZOOM_STEPS = [50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300];
+
+/** The zoom level one step up (dir > 0) or down (dir < 0) from `cur`, which needn't be a step itself. */
+export function nextZoom(cur, dir) {
+  if (dir > 0) return ZOOM_STEPS.find(z => z > cur) ?? ZOOM_STEPS.at(-1);
+  return ZOOM_STEPS.findLast(z => z < cur) ?? ZOOM_STEPS[0];
+}
+
 /** Opens a web page: in the default browser from the native window, in a new tab otherwise. */
 export function openExternal(url) {
   if (NATIVE) window.external.sendMessage('open:' + url);

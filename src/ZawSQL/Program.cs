@@ -53,7 +53,7 @@ static class Program
         var native = !opts.NoBrowser && !opts.UseBrowser;
         if (native)
         {
-            if (app.Services.GetRequiredService<AppWindow>().Run(url, app.Lifetime))
+            if (app.Services.GetRequiredService<AppWindow>().Run(url, app.Lifetime, AppHost.SavedZoom(app)))
             {
                 // The window was closed (or File > Exit, or installing an update, closed it).
                 app.StopAsync().GetAwaiter().GetResult();
