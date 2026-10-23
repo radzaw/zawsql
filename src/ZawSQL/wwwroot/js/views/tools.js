@@ -597,6 +597,7 @@ export async function preferencesDialog(app) {
   const maxRows = h('input', { class: 'inp', type: 'number', min: 1, max: 10000000, value: p.maxResultRows });
   const theme = h('select', { class: 'inp' }, [['system', 'Follow system'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) => h('option', { value: v, selected: v === p.theme }, l)));
   const font = h('input', { class: 'inp', type: 'number', min: 9, max: 24, value: p.editorFontSize });
+  const autoClose = h('input', { type: 'checkbox', checked: p.autoCloseBrackets !== false });
   const noWhere = h('input', { type: 'checkbox', checked: p.confirmNoWhere !== false });
   const checkUpdates = h('input', { type: 'checkbox', checked: p.checkUpdates !== false });
   const showWhatsNew = h('input', { type: 'checkbox', checked: p.showWhatsNew !== false });
@@ -617,6 +618,7 @@ export async function preferencesDialog(app) {
         ? h('label', { class: 'frow', title: 'Scales the whole interface: menus, dialogs, text boxes, the grid and the SQL editor. Also Ctrl+= / Ctrl+- / Ctrl+0 and Ctrl+wheel.' }, h('span', null, 'Interface zoom:'), zoom)
         : h('div', { class: 'frow' }, h('span', null, 'Interface zoom:'), h('span', { class: 'muted' }, "Use the browser's zoom (Ctrl+= / Ctrl+-).")),
       h('label', { class: 'frow' }, h('span', null, 'SQL editor font size:'), font),
+      h('label', { class: 'frow' }, h('span', null, ''), h('label', { class: 'chk' }, autoClose, ' Auto-close brackets and quotes')),
       h('label', { class: 'frow' }, h('span', null, 'Formatter keywords:'), kwCase),
       h('label', { class: 'frow' }, h('span', null, 'Formatter indent:'), indent),
       h('label', { class: 'frow' }, h('span', null, 'Safety:'), h('label', { class: 'chk' }, noWhere, ' Confirm UPDATE/DELETE without WHERE')),
@@ -633,6 +635,7 @@ export async function preferencesDialog(app) {
     theme: theme.value,
     uiZoom: Number(zoom.value),
     editorFontSize: Math.max(9, parseInt(font.value, 10) || 13),
+    autoCloseBrackets: autoClose.checked,
     confirmNoWhere: noWhere.checked,
     checkUpdates: checkUpdates.checked,
     showWhatsNew: showWhatsNew.checked,

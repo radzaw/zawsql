@@ -173,7 +173,7 @@ export function activeParam(params, argIndex) {
   return params.at(-1) === '…' ? params.length - 1 : -1;
 }
 
-const TOKEN_RE = /--(?=\s|$)[^\n]*|#[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|'(?:[^'\\]|\\[\s\S])*(?:'|$)|"(?:[^"\\]|\\[\s\S])*(?:"|$)|`(?:[^`]|``)*(?:`|$)|[A-Za-z_$][\w$]*|\d[\w.]*|\s+|[\s\S]/g;
+export const TOKEN_RE = /--(?=\s|$)[^\n]*|#[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|'(?:[^'\\]|\\[\s\S])*(?:'|$)|"(?:[^"\\]|\\[\s\S])*(?:"|$)|`(?:[^`]|``)*(?:`|$)|[A-Za-z_$][\w$]*|\d[\w.]*|\s+|[\s\S]/g;
 
 /**
  * The innermost named call the caret is in: { name, qualifier, argIndex, open } (open: offset of its "("), or null.
@@ -210,6 +210,7 @@ export function callAt(text, pos) {
 }
 
 const CLOSED_RE = /^(?:'(?:[^'\\]|\\[\s\S])*'|"(?:[^"\\]|\\[\s\S])*"|`(?:[^`]|``)*`|\/\*[\s\S]*\*\/)$/;
-const unclosed = t => /^(--|#)/.test(t) || (/^['"`]|^\/\*/.test(t) && !CLOSED_RE.test(t));
+/** A string, quoted name or comment token the text ends inside (so the caret is in it). */
+export const unclosed = t => /^(--|#)/.test(t) || (/^['"`]|^\/\*/.test(t) && !CLOSED_RE.test(t));
 
 const unquote = s => (s.startsWith('`') ? s.slice(1, s.endsWith('`') && s.length > 1 ? -1 : undefined).replace(/``/g, '`') : s);

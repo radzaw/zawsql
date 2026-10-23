@@ -442,14 +442,7 @@ public static class Api
                         FROM information_schema.SCHEMATA s LEFT JOIN information_schema.TABLES t ON t.TABLE_SCHEMA = s.SCHEMA_NAME
                         GROUP BY s.SCHEMA_NAME, s.DEFAULT_COLLATION_NAME ORDER BY s.SCHEMA_NAME
                         """, ct);
-                case "variables":
-                {
-                    var session = await Db.RowsAsync(c, log, "SHOW SESSION VARIABLES", ct);
-                    var global = (await Db.RowsAsync(c, log, "SHOW GLOBAL VARIABLES", ct))
-                        .GroupBy(r => r["Variable_name"] ?? "").ToDictionary(g => g.Key, g => g.First()["Value"]);
-                    var rows = session.Select(r => new[] { r["Variable_name"], r["Value"], global.GetValueOrDefault(r["Variable_name"] ?? "") }).ToList();
-                    return ResultSet.From(["Variable", "Session", "Global"], rows);
-                }
+                case "variables": return await ServerSettings.VariablesAsync(c, log, ct);
                 case "status": return await Db.QueryAsync(c, log, "SHOW GLOBAL STATUS", ct);
                 case "processes": return await Db.QueryAsync(c, log, "SHOW FULL PROCESSLIST", ct);
                 case "collations": return await Db.QueryAsync(c, null, "SHOW COLLATION", ct);
@@ -548,6 +541,28 @@ public static class Api
         {
             if (ses.Profile.ReadOnly) throw new ApiException(ReadOnlyMessage);
             return await UserAdmin.ApplyAsync(c, log, req, ct);
+        }));
+
+        // ---- Host tab › Events and Variables ----
+        s.MapGet("/events", (string sid, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, _, log) =>
+            await ServerSettings.EventsAsync(c, log, ct)));
+        s.MapPost("/events/scheduler", (string sid, SchedulerRequest req, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, ses, log) =>
+        {
+            if (ses.Profile.ReadOnly) throw new ApiException(ReadOnlyMessage);
+            await ServerSettings.SetSchedulerAsync(c, log, req.On, ct);
+            return null;
+        }));
+        s.MapPost("/events/action", (string sid, EventActionRequest req, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, ses, log) =>
+        {
+            if (ses.Profile.ReadOnly) throw new ApiException(ReadOnlyMessage);
+            await ServerSettings.EventActionAsync(c, log, req, ct);
+            return null;
+        }));
+        s.MapPost("/variables/set", (string sid, SetVariableRequest req, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, ses, log) =>
+        {
+            if (ses.Profile.ReadOnly) throw new ApiException(ReadOnlyMessage);
+            await ServerSettings.SetVariableAsync(c, log, req, ct);
+            return null;
         }));
 
         s.MapPost("/kill", (string sid, KillRequest req, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, ses, log) =>

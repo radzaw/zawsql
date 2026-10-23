@@ -1,8 +1,14 @@
 // Virtualized data grid: renders only visible rows, supports cell selection, keyboard navigation,
-// column resizing, sorting callbacks and in-place editing.
+// column resizing, reordering and hiding, sorting callbacks and in-place editing.
+//
+// Columns are addressed by their index in the data (`columns`, each row array) everywhere outside: cur.c, callbacks,
+// widths. Only the layout uses display positions: `order` lists the shown columns' data indexes, left to right, and
+// selRect() returns positions (selCols() gives the columns it covers).
 import { h, esc, isNumericKind } from './util.js';
 import { icon } from './icons.js';
 import { needsPreview, previewText, placePreview, PREVIEW_DELAY } from './cellpreview.js';
+import { arrange, layoutOf, moveColumn } from './gridlayout.js';
+import { contextMenu, modal } from './dialogs.js';
 
 // Must match .grid / .gh-t in app.css (font, cell padding) so measured widths fit.
 const GRID_FONT = '12.5px "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Ubuntu, Cantarell, "Noto Sans", sans-serif';
@@ -35,11 +41,17 @@ export class Grid {
       onRowChange: null,    // (prevRow, newRow) => void
       onActivate: null,     // (r, c) => void  (double click / Enter on read-only grid)
       onKey: null,          // (event) => void  (unhandled keys)
+      arrange: false,       // columns can be dragged to another place and hidden (header context menu)
+      onLayout: null,       // (layout | null) => void  after the user rearranged columns (see gridlayout.js)
     }, opts);
     this.rh = this.o.rowHeight;
     this.columns = [];
     this.rows = [];
     this.widths = [];
+    this.seq = [];
+    this.hidden = new Set();
+    this.order = [];
+    this.posOf = [];
     this.cur = { r: -1, c: -1 };
     this.anchor = { r: -1, c: -1 };
     this.sort = null;
@@ -69,6 +81,7 @@ export class Grid {
     this.body.addEventListener('keydown', e => this.onKeyDown(e));
     this.header.addEventListener('mousedown', e => this.onHeaderDown(e));
     this.header.addEventListener('click', e => this.onHeaderClick(e));
+    this.header.addEventListener('contextmenu', e => this.onHeaderCtx(e));
     this.header.addEventListener('dblclick', e => {
       const rz = e.target.closest('.gh-rz');
       if (rz) this.autoFit(+rz.dataset.rz);
@@ -80,21 +93,29 @@ export class Grid {
 
   focus() { this.body.focus({ preventScroll: true }); }
 
-  setData(columns, rows, { keepWidths = false, keepPos = false } = {}) {
+  /**
+   * `layout`: the column order and hidden columns to start with ({ order, hidden } by name). With keepWidths and the
+   * same columns as before, the current widths and arrangement stay instead.
+   */
+  setData(columns, rows, { keepWidths = false, keepPos = false, layout = null } = {}) {
     this.hidePreview();
     if (this.editing) this.cancelEdit();
     const same = keepWidths && columns.length === this.columns.length && columns.every((c, i) => c.name === this.columns[i].name);
     this.columns = columns;
     this.rows = rows;
-    if (!same) this.widths = this.computeWidths();
+    if (!same) {
+      this.widths = this.computeWidths();
+      const a = arrange(columns.map(c => c.name), this.o.arrange ? layout : null);
+      this.setArrangement(a.seq, a.hidden);
+    }
     if (!keepPos) {
-      this.cur = { r: rows.length ? 0 : -1, c: columns.length ? 0 : -1 };
+      this.cur = { r: rows.length ? 0 : -1, c: this.order.length ? this.order[0] : -1 };
       this.anchor = { ...this.cur };
       this.body.scrollTop = 0;
       this.body.scrollLeft = 0;
     } else {
       this.cur.r = Math.min(this.cur.r, rows.length - 1);
-      this.cur.c = Math.min(Math.max(this.cur.c, columns.length ? 0 : -1), columns.length - 1);
+      if (!(this.posOf[this.cur.c] >= 0)) this.cur.c = this.order.length ? this.order[0] : -1;
       if (this.cur.r < 0 && rows.length) this.cur.r = 0;
       this.anchor = { ...this.cur };
     }
@@ -135,23 +156,119 @@ export class Grid {
   }
 
   totalWidth() {
-    return this.gutterW + this.widths.reduce((a, b) => a + b, 0);
+    let w = this.gutterW;
+    for (const c of this.order) w += this.widths[c];
+    return w;
   }
 
+  /** Left edge of column c (a data index) from the first shown column. */
   colLeft(c) {
     let x = 0;
-    for (let i = 0; i < c; i++) x += this.widths[i];
+    for (let p = 0; p < this.posOf[c]; p++) x += this.widths[this.order[p]];
     return x;
+  }
+
+  // ---------- column order and hidden columns ----------
+
+  /** notify: the user changed it, so redraw and tell the owner (to remember it). */
+  setArrangement(seq, hidden, notify = false) {
+    if (notify && this.editing) this.commitEdit();
+    this.seq = seq;
+    this.hidden = hidden;
+    this.order = seq.filter(c => !hidden.has(c));
+    this.posOf = new Array(this.columns.length).fill(-1);
+    this.order.forEach((c, p) => { this.posOf[c] = p; });
+    // The current cell can't stay in a hidden column.
+    for (const k of ['cur', 'anchor']) {
+      if (this[k].c >= 0 && !(this.posOf[this[k].c] >= 0)) this[k] = { ...this[k], c: this.order[0] ?? -1 };
+    }
+    if (!notify) return;
+    this.renderHeader();
+    this.render();
+    this.o.onLayout?.(layoutOf(this.columns.map(c => c.name), seq, hidden));
+  }
+
+  setHidden(c, hide) {
+    const hidden = new Set(this.hidden);
+    if (hide) {
+      if (this.order.length <= 1) return;
+      hidden.add(c);
+    } else hidden.delete(c);
+    this.setArrangement(this.seq, hidden, true);
+  }
+
+  isRearranged() { return this.hidden.size > 0 || this.seq.some((c, i) => c !== i); }
+
+  resetArrangement() { this.setArrangement(this.columns.map((_, i) => i), new Set(), true); }
+
+  /** A dialog to pick the shown columns, with a filter for wide tables. */
+  async chooseColumns() {
+    if (!this.columns.length) return;
+    const boxes = this.seq.map(c => h('input', { type: 'checkbox', checked: !this.hidden.has(c) }));
+    const items = this.seq.map((c, i) => h('label', { class: 'chk col-choice', title: this.columns[c].title || this.columns[c].type || '' }, boxes[i], ' ', this.columns[c].name));
+    const filter = h('input', { class: 'inp', placeholder: 'Filter columns', spellcheck: false });
+    filter.addEventListener('input', () => {
+      const q = filter.value.trim().toLowerCase();
+      items.forEach((el, i) => { el.style.display = !q || this.columns[this.seq[i]].name.toLowerCase().includes(q) ? '' : 'none'; });
+    });
+    const setShown = on => items.forEach((el, i) => { if (el.style.display !== 'none') boxes[i].checked = on; });
+    const ok = await modal({
+      title: 'Columns',
+      width: 380,
+      body: h('div', { class: 'col-chooser' },
+        h('div', { class: 'col-chooser-head' }, filter,
+          h('button', { class: 'btn', onclick: () => setShown(true) }, 'All'),
+          h('button', { class: 'btn', onclick: () => setShown(false) }, 'None')),
+        h('div', { class: 'col-chooser-list' }, items),
+        h('div', { class: 'muted' }, 'Drag a column header to move the column.')),
+      onOpen: () => filter.focus(),
+      buttons: [{ label: 'OK', value: true, primary: true }, { label: 'Cancel', value: false }],
+    });
+    if (!ok) return;
+    const hidden = new Set(this.seq.filter((_, i) => !boxes[i].checked));
+    if (hidden.size >= this.columns.length) hidden.clear(); // nothing shown would be no grid at all
+    this.setArrangement(this.seq, hidden, true);
+  }
+
+  onHeaderCtx(e) {
+    e.preventDefault();
+    if (!this.columns.length) return;
+    const gh = e.target.closest('.gh[data-c]');
+    const c = gh ? +gh.dataset.c : null;
+    const name = c != null ? this.columns[c].name : '';
+    contextMenu(e.clientX, e.clientY, [
+      c != null && { label: 'Size to fit', onClick: () => this.autoFit(c) },
+      ...(this.o.arrange ? [
+        c != null && { label: `Hide column "${name.length > 30 ? name.slice(0, 30) + '…' : name}"`, disabled: this.order.length <= 1, onClick: () => this.setHidden(c, true) },
+        { label: 'Choose columns…', icon: 'columns', onClick: () => this.chooseColumns() },
+        '-',
+        { label: `Show all columns${this.hidden.size ? ` (${this.hidden.size} hidden)` : ''}`, disabled: !this.hidden.size, onClick: () => this.setArrangement(this.seq, new Set(), true) },
+        { label: 'Reset column order', disabled: this.seq.every((x, i) => x === i), onClick: () => this.setArrangement(this.columns.map((_, i) => i), this.hidden, true) },
+      ] : []),
+    ]);
+  }
+
+  /** Where a dragged column would go: before which column (null: last), and the x of that edge in the header. */
+  dropAt(clientX) {
+    const x = clientX - this.headerInner.getBoundingClientRect().left - this.gutterW;
+    let acc = 0;
+    for (const c of this.order) {
+      const w = this.widths[c];
+      if (x < acc + w / 2) return { before: c, x: this.gutterW + acc };
+      acc += w;
+    }
+    return { before: null, x: this.gutterW + acc };
   }
 
   renderHeader() {
     const parts = [];
     if (this.o.gutter) parts.push(`<div class="gh gutter" style="width:${this.gutterW}px"></div>`);
-    this.columns.forEach((c, i) => {
+    for (const i of this.order) {
+      const c = this.columns[i];
       const s = this.sort && this.sort.c === i ? (this.sort.dir === 'desc' ? '▼' : '▲') : '';
       const key = c.key ? icon(c.key === 'pri' ? 'key' : c.key === 'uni' ? 'keyu' : 'keyi', 'gh-key') : '';
       parts.push(`<div class="gh${isNumericKind(c.kind) ? ' num' : ''}" data-c="${i}" style="width:${this.widths[i]}px" title="${esc(c.title || c.type || c.name)}">${key}<span class="gh-t">${esc(c.name)}</span><span class="gh-s">${s}</span><div class="gh-rz" data-rz="${i}"></div></div>`);
-    });
+    }
     this.headerInner.innerHTML = parts.join('');
     this.headerInner.style.width = this.totalWidth() + 40 + 'px';
   }
@@ -161,12 +278,20 @@ export class Grid {
     this.raf = requestAnimationFrame(() => { this.raf = 0; this.render(); });
   }
 
+  /** The selection: rows r1..r2, and display positions c1..c2 (see selCols). */
   selRect() {
     if (this.cur.r < 0 || this.anchor.r < 0) return null;
+    const a = this.posOf[this.anchor.c] ?? -1, b = this.posOf[this.cur.c] ?? -1;
     return {
       r1: Math.min(this.cur.r, this.anchor.r), r2: Math.max(this.cur.r, this.anchor.r),
-      c1: Math.min(this.cur.c, this.anchor.c), c2: Math.max(this.cur.c, this.anchor.c),
+      c1: Math.min(a, b), c2: Math.max(a, b),
     };
+  }
+
+  /** The selected columns' data indexes, left to right. */
+  selCols() {
+    const s = this.selRect();
+    return s ? this.order.slice(s.c1, s.c2 + 1) : [];
   }
 
   selectedRowIndexes() {
@@ -195,9 +320,11 @@ export class Grid {
       if (r & 1) cls += ' odd';
       if (row.$new) cls += ' new';
       else if (row.$dirty) cls += ' dirty';
+      if (row.$cls) cls += ' ' + row.$cls; // set by the owner, e.g. to dim or mark a row
       out.push(`<div class="${cls}" style="top:${r * this.rh}px;width:${total}px;height:${this.rh}px">`);
       if (this.o.gutter) out.push(`<div class="gc gutter" style="width:${this.gutterW}px">${r === this.cur.r ? '▸' : row.$new ? '*' : ''}</div>`);
-      for (let c = 0; c < this.columns.length; c++) {
+      for (let p = 0; p < this.order.length; p++) {
+        const c = this.order[p];
         const col = this.columns[c];
         const v = row[c];
         let ccls = 'gc k-' + (col.kind || 'text');
@@ -205,7 +332,7 @@ export class Grid {
         if (row.$new && row.$set && !row.$set.has(c)) { txt = '(default)'; ccls += ' null'; }
         else if (v == null) { txt = '(NULL)'; ccls += ' null'; }
         else txt = esc(this.cellText(v, col));
-        if (multi && r >= sel.r1 && r <= sel.r2 && c >= sel.c1 && c <= sel.c2) ccls += ' sel';
+        if (multi && r >= sel.r1 && r <= sel.r2 && p >= sel.c1 && p <= sel.c2) ccls += ' sel';
         if (r === this.cur.r && c === this.cur.c) ccls += ' focus';
         if (row.$changed?.has(c)) ccls += ' changed';
         out.push(`<div class="${ccls}" style="width:${this.widths[c]}px">${txt}</div>`);
@@ -266,22 +393,28 @@ export class Grid {
     const x = bx + this.body.scrollLeft - this.gutterW;
     const r = Math.floor(y / this.rh);
     let c = -1;
-    if (x < 0) c = Math.max(0, this.cur.c);
+    if (x < 0) c = this.cur.c >= 0 ? this.cur.c : this.order[0] ?? -1;
     else {
       let acc = 0;
-      for (let i = 0; i < this.widths.length; i++) {
+      for (const i of this.order) {
         if (x < acc + this.widths[i]) { c = i; break; }
         acc += this.widths[i];
       }
-      if (c < 0) c = this.widths.length - 1;
+      if (c < 0) c = this.order.at(-1) ?? -1;
     }
     return { r: r < this.rows.length ? r : -1, c };
   }
 
+  /** The column `step` places left (−) or right (+) of column c on screen, stopping at the edges. */
+  colStep(c, step) {
+    const p = Math.max(0, Math.min(this.order.length - 1, (this.posOf[c] ?? 0) + step));
+    return this.order[p];
+  }
+
   setCur(r, c, extend = false) {
-    if (!this.rows.length || !this.columns.length) return;
+    if (!this.rows.length || !this.order.length) return;
     r = Math.max(0, Math.min(this.rows.length - 1, r));
-    c = Math.max(0, Math.min(this.columns.length - 1, c));
+    if (!(this.posOf[c] >= 0)) c = this.order[0];
     const prevR = this.cur.r;
     this.cur = { r, c };
     if (!extend) this.anchor = { r, c };
@@ -306,8 +439,8 @@ export class Grid {
 
   selectAll() {
     if (!this.rows.length) return;
-    this.anchor = { r: 0, c: 0 };
-    this.cur = { r: this.rows.length - 1, c: this.columns.length - 1 };
+    this.anchor = { r: 0, c: this.order[0] };
+    this.cur = { r: this.rows.length - 1, c: this.order.at(-1) };
     this.render();
   }
 
@@ -317,7 +450,8 @@ export class Grid {
     if (this.editing) this.commitEdit();
     if (e.button === 2) {
       const s = this.selRect();
-      if (!s || p.r < s.r1 || p.r > s.r2 || p.c < s.c1 || p.c > s.c2) this.setCur(p.r, p.c);
+      const pp = this.posOf[p.c];
+      if (!s || p.r < s.r1 || p.r > s.r2 || pp < s.c1 || pp > s.c2) this.setCur(p.r, p.c);
       return;
     }
     if (e.button !== 0) return;
@@ -367,13 +501,13 @@ export class Grid {
     switch (e.key) {
       case 'ArrowDown': nr++; break;
       case 'ArrowUp': nr--; break;
-      case 'ArrowLeft': nc--; break;
-      case 'ArrowRight': nc++; break;
+      case 'ArrowLeft': nc = this.colStep(c, -1); break;
+      case 'ArrowRight': nc = this.colStep(c, 1); break;
       case 'PageDown': nr += page; break;
       case 'PageUp': nr -= page; break;
-      case 'Home': if (ctrl) nr = 0; nc = 0; break;
-      case 'End': if (ctrl) nr = this.rows.length - 1; nc = this.columns.length - 1; break;
-      case 'Tab': nc += e.shiftKey ? -1 : 1; break;
+      case 'Home': if (ctrl) nr = 0; nc = this.order[0]; break;
+      case 'End': if (ctrl) nr = this.rows.length - 1; nc = this.order.at(-1); break;
+      case 'Tab': nc = this.colStep(c, e.shiftKey ? -1 : 1); break;
       case 'Enter':
       case 'F2':
         e.preventDefault();
@@ -397,7 +531,7 @@ export class Grid {
 
   onHeaderDown(e) {
     const rz = e.target.closest('.gh-rz');
-    if (!rz) return;
+    if (!rz) return this.dragColumn(e);
     e.preventDefault();
     e.stopPropagation();
     const i = +rz.dataset.rz;
@@ -418,6 +552,40 @@ export class Grid {
     window.addEventListener('mouseup', up);
   }
 
+  /** Dragging a header moves its column; a plain click (no movement) still sorts. */
+  dragColumn(e) {
+    const gh = e.target.closest('.gh[data-c]');
+    if (!gh || !this.o.arrange || e.button !== 0) return;
+    const c = +gh.dataset.c, sx = e.clientX;
+    const marker = h('div', { class: 'gh-drop' });
+    let dragging = false, before = c;
+    const move = ev => {
+      if (!dragging && Math.abs(ev.clientX - sx) < 5) return;
+      if (!dragging) {
+        dragging = true;
+        gh.classList.add('dragging');
+        document.body.classList.add('dragging-col');
+        this.headerInner.append(marker);
+      }
+      const at = this.dropAt(ev.clientX);
+      before = at.before;
+      marker.style.left = at.x - 1 + 'px';
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      if (!dragging) return;
+      marker.remove();
+      gh.classList.remove('dragging');
+      document.body.classList.remove('dragging-col');
+      this.justResized = Date.now(); // no sorting from the click that ends the drag
+      const seq = moveColumn(this.seq, c, before);
+      if (seq.some((x, i) => x !== this.seq[i])) this.setArrangement(seq, this.hidden, true);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  }
+
   onHeaderClick(e) {
     if (Date.now() - (this.justResized || 0) < 250 || e.target.closest('.gh-rz')) return;
     const gh = e.target.closest('.gh[data-c]');
@@ -432,9 +600,10 @@ export class Grid {
     if (!s) return '';
     several ||= s.r1 !== s.r2 || s.c1 !== s.c2;
     const lines = [];
+    const cols = this.selCols();
     for (let r = s.r1; r <= s.r2; r++) {
       const vals = [];
-      for (let c = s.c1; c <= s.c2; c++) {
+      for (const c of cols) {
         vals.push(clipCell(this.rows[r][c], several));
       }
       lines.push(vals.join('\t'));
@@ -483,7 +652,7 @@ export class Grid {
       ev.stopPropagation();
       if (ev.key === 'Escape') { ev.preventDefault(); this.cancelEdit(); }
       else if (ev.key === 'Enter' && (!multi || ev.ctrlKey)) { ev.preventDefault(); this.commitEdit(); this.focus(); }
-      else if (ev.key === 'Tab') { ev.preventDefault(); this.commitEdit(); this.setCur(r, c + (ev.shiftKey ? -1 : 1)); this.focus(); }
+      else if (ev.key === 'Tab') { ev.preventDefault(); this.commitEdit(); this.setCur(r, this.colStep(c, ev.shiftKey ? -1 : 1)); this.focus(); }
       else if (!multi && ed.tagName === 'INPUT' && (ev.key === 'ArrowUp' || ev.key === 'ArrowDown')) {
         ev.preventDefault();
         this.commitEdit();

@@ -5,11 +5,11 @@ import { cleanView, rememberView, viewFor, withExistingSort } from '../../src/Za
 test('sorting and filter are remembered per table', () => {
   let s = rememberView(undefined, 'shop.orders', { sort: { col: 'total', dir: 'desc' }, where: "status = 'paid'", search: '' });
   s = rememberView(s, 'shop.customers', { sort: { col: 'name', dir: 'asc' }, where: '', search: '' });
-  assert.deepEqual(viewFor(s, 'shop.orders'), { sort: { col: 'total', dir: 'desc' }, where: "status = 'paid'", search: '' });
-  assert.deepEqual(viewFor(s, 'shop.customers'), { sort: { col: 'name', dir: 'asc' }, where: '', search: '' });
+  assert.deepEqual(viewFor(s, 'shop.orders'), { sort: { col: 'total', dir: 'desc' }, where: "status = 'paid'", search: '', cols: null });
+  assert.deepEqual(viewFor(s, 'shop.customers'), { sort: { col: 'name', dir: 'asc' }, where: '', search: '', cols: null });
   // A table never sorted or filtered opens with the defaults.
-  assert.deepEqual(viewFor(s, 'shop.products'), { sort: null, where: '', search: '' });
-  assert.deepEqual(viewFor(undefined, 'x'), { sort: null, where: '', search: '' });
+  assert.deepEqual(viewFor(s, 'shop.products'), { sort: null, where: '', search: '', cols: null });
+  assert.deepEqual(viewFor(undefined, 'x'), { sort: null, where: '', search: '', cols: null });
 });
 
 test('going back to the default view forgets the table', () => {
@@ -20,7 +20,7 @@ test('going back to the default view forgets the table', () => {
 
 test('quick search text is kept with the filter it produced', () => {
   const s = rememberView({}, 't', { where: "`name` LIKE '%ann%'", search: 'ann' });
-  assert.deepEqual(viewFor(s, 't'), { sort: null, where: "`name` LIKE '%ann%'", search: 'ann' });
+  assert.deepEqual(viewFor(s, 't'), { sort: null, where: "`name` LIKE '%ann%'", search: 'ann', cols: null });
 });
 
 test('stored views are normalized', () => {
@@ -42,4 +42,12 @@ test('a sort column the table no longer has is dropped', () => {
   const v = { sort: { col: 'old_name', dir: 'asc' }, where: 'id > 1', search: '' };
   assert.deepEqual(withExistingSort(v, ['id', 'new_name']), { ...v, sort: null });
   assert.equal(withExistingSort(v, ['id', 'old_name']), v);
+});
+
+test('the column layout is remembered with the view', () => {
+  const cols = { order: ['name', 'id'], hidden: ['notes'] };
+  const s = rememberView({}, 't', { sort: null, where: '', search: '', cols });
+  assert.deepEqual(viewFor(s, 't'), { sort: null, where: '', search: '', cols });
+  // The default layout alone is no reason to keep the table.
+  assert.deepEqual(rememberView(s, 't', { cols: null }), {});
 });

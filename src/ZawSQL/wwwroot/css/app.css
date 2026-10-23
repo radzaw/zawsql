@@ -372,7 +372,15 @@ select.inp { padding: 0 4px; }
 /* ---------- grid ---------- */
 .grid { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; position: relative; background: var(--surface); font: var(--font); font-size: 12.5px; }
 .grid-hdr { height: 28px; overflow: hidden; flex: none; background: var(--canvas); border-bottom: 1px solid var(--line); }
-.grid-hdr-inner { display: flex; height: 100%; will-change: transform; }
+.grid-hdr-inner { position: relative; display: flex; height: 100%; will-change: transform; }
+.gh.dragging { background: var(--accent-soft); color: var(--accent); }
+.gh-drop { position: absolute; top: 2px; bottom: 2px; width: 3px; border-radius: 2px; background: var(--accent); z-index: 2; pointer-events: none; }
+body.dragging-col, body.dragging-col * { cursor: grabbing !important; user-select: none; }
+.col-chooser { display: flex; flex-direction: column; gap: 8px; }
+.col-chooser-head { display: flex; gap: 6px; }
+.col-chooser-head .inp { flex: 1; min-width: 0; }
+.col-chooser-list { display: flex; flex-direction: column; max-height: 340px; overflow: auto; padding: 4px 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.col-choice { padding: 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .gh {
   position: relative; display: flex; align-items: center; gap: 4px; flex: none; height: 100%; padding: 0 8px;
   border-right: 1px solid var(--line-soft); white-space: nowrap; overflow: hidden; cursor: default; color: var(--muted);
@@ -392,6 +400,14 @@ select.inp { padding: 0 4px; }
 .gr.cur { background: var(--row-cur); }
 .gr.new { background: var(--new); }
 .gr.dirty { background: var(--dirty); }
+.gr.var-changed .gc:first-child { box-shadow: inset 3px 0 0 var(--accent); font-weight: 600; }
+.gr.var-changed .gc:nth-child(4) { color: var(--accent); }
+.gr.muted-row .gc { color: var(--faint); }
+.ev-state { padding: 0 9px; border-radius: 999px; font-size: 11px; font-weight: 700; line-height: 20px; text-transform: uppercase; letter-spacing: 0.03em; }
+.ev-state.on { background: var(--ok-bg); color: var(--ok); }
+.ev-state.off { background: var(--warn-bg); color: var(--warn); }
+.var-scopes { display: flex; flex-direction: column; gap: 4px; }
+.var-fact { overflow-wrap: anywhere; user-select: text; }
 .gc {
   flex: none; height: 100%; padding: 0 8px; line-height: 22px; white-space: pre; overflow: hidden; text-overflow: ellipsis;
   border-right: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft);
@@ -509,6 +525,8 @@ select.cell-inp { padding: 0 4px; }
 .pi .pl { flex: 1; overflow: hidden; text-overflow: ellipsis; }
 .pi.sel .pl { font-weight: 600; }
 .pi .pk { color: var(--faint); font-size: 11px; padding-left: 12px; min-width: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis; }
+.sqled-bm { position: absolute; pointer-events: none; border-radius: 2px; background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent); }
+.sqled-bm.bad { background: color-mix(in srgb, var(--danger) 18%, transparent); box-shadow: inset 0 0 0 1px var(--danger); }
 .sqled-sig {
   position: absolute; z-index: 21; max-width: min(620px, calc(100% - 8px)); padding: 5px 9px;
   background: var(--raised); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow-m); font: var(--font); cursor: default;

@@ -89,6 +89,7 @@ export class QueryView {
     this.resTabs = h('div', { class: 'res-tabs' }, this.resTabList, this.editInfo);
     this.grid = new Grid({
       emptyText: '',
+      arrange: true, // for this result only: a new result starts in its own column order
       onSort: c => this.sortBy(c),
       onContextMenu: (e, p) => this.ctx(e, p),
       onCellEdit: (r, c, v) => this.rowEditor.cellEdit(r, c, v),
@@ -670,7 +671,7 @@ export class QueryView {
     if (!this.sets.length) return;
     contextMenu(e.clientX, e.clientY, [
       { label: 'Copy', icon: 'copy', shortcut: 'Ctrl+C', onClick: () => this.grid.copy() },
-      { label: 'Copy with column names', onClick: () => this.grid.copy(this.cols.slice(this.grid.selRect().c1, this.grid.selRect().c2 + 1).map(c => clipCell(c.name, true)).join('\t') + '\n' + this.grid.selectedText(true)) },
+      { label: 'Copy with column names', onClick: () => this.grid.copy(this.grid.selCols().map(c => clipCell(this.cols[c].name, true)).join('\t') + '\n' + this.grid.selectedText(true)) },
       '-',
       ...(this.editTarget ? [...this.rowEditor.menuItems(p), '-'] : []),
       { label: 'Export grid rows…', icon: 'export', onClick: () => exportGridDialog(this.app, { columns: this.cols, rows: this.rows, selected: this.grid.selectedRowIndexes(), name: this.sets[this.active].columns[0]?.table || 'result' }) },

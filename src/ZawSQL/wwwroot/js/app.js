@@ -4,7 +4,7 @@ import { h, qi, debounce, makeSplitter, fmtElapsed, NATIVE, openExternal, ZOOM_S
 import { icon } from './icons.js';
 import { Tree } from './tree.js';
 import { LogPanel } from './log.js';
-import { KEYWORDS, FUNCTIONS } from './editor.js';
+import { KEYWORDS, FUNCTIONS, SqlEditor } from './editor.js';
 import { builtinSignature, paramList } from './sqlsigs.js';
 import { isReadOnlyStatement, lacksWhere } from './sqlcheck.js';
 import { contextMenu, closeMenus, menuIsOpen, alertError, confirmDlg, promptDlg, modal, modalIsOpen } from './dialogs.js';
@@ -25,7 +25,7 @@ import { sortGroups } from './multirunlogic.js';
 import { sessionManager, confirmHostKey, exportDumpDialog, runSqlFile, createDatabaseDialog, preferencesDialog, aboutDialog } from './views/tools.js';
 
 const TYPE_LABEL = { table: 'Table', view: 'View', procedure: 'Procedure', function: 'Function', trigger: 'Trigger', event: 'Event' };
-const DEFAULT_PREFS = { rowsPerPage: 1000, maxResultRows: 10000, theme: 'system', uiZoom: 100, editorFontSize: 13, confirmNoWhere: true, formatKeywordCase: 'upper', formatIndent: '2', checkUpdates: true, showWhatsNew: true, txDefault: 'auto', logTimestamps: true, slowLogMs: DEFAULT_SLOW_MS };
+const DEFAULT_PREFS = { rowsPerPage: 1000, maxResultRows: 10000, theme: 'system', uiZoom: 100, editorFontSize: 13, autoCloseBrackets: true, confirmNoWhere: true, formatKeywordCase: 'upper', formatIndent: '2', checkUpdates: true, showWhatsNew: true, txDefault: 'auto', logTimestamps: true, slowLogMs: DEFAULT_SLOW_MS };
 
 // ---------------------------------------------------------------- tabs
 
@@ -231,6 +231,7 @@ class App {
     const dark = p.theme === 'dark' || (p.theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
     document.documentElement.style.setProperty('--ed-font-size', p.editorFontSize + 'px');
+    SqlEditor.autoClose = p.autoCloseBrackets !== false;
     // The web view zooms the whole page, so text, inputs, the grid and the editors all scale together.
     if (NATIVE) window.external.sendMessage('zoom:' + p.uiZoom);
     this.log?.markAll(); // the slow statement threshold may have changed

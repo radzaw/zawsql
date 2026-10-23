@@ -63,6 +63,8 @@ export class DataView {
       onContextMenu: (e, p) => this.ctx(e, p),
       onRowChange: prev => this.editor.rowLeft(prev),
       onKey: e => this.editor.handleKey(e),
+      arrange: true,
+      onLayout: l => { this.colLayout = l; this.rememberView(); },
     });
     // SELECT * returns the table's columns in table order, so grid columns map 1:1 to the re-read row.
     this.editor = new RowEditor(app, {
@@ -91,6 +93,7 @@ export class DataView {
       const v = viewFor(this.app.state.dataViews, this.viewKey);
       this.sort = v.sort;
       this.where = v.where;
+      this.colLayout = v.cols;
       this.showAll = false;
       this.whereInput.value = v.where;
       this.search.value = v.search;
@@ -134,7 +137,7 @@ export class DataView {
       this.sort = withExistingSort({ sort: this.sort }, this.cols.map(c => c.name)).sort;
       const sc = this.sort ? this.cols.findIndex(c => c.name === this.sort.col) : -1;
       this.grid.sort = sc >= 0 ? { c: sc, dir: this.sort.dir } : null;
-      this.grid.setData(this.cols, this.rows, { keepWidths: sameCols, keepPos: append });
+      this.grid.setData(this.cols, this.rows, { keepWidths: sameCols, keepPos: append, layout: this.colLayout });
       this.updateInfo();
       // Only views that loaded are remembered, so a broken filter isn't brought back next time.
       if (!append) this.rememberView();
@@ -210,7 +213,7 @@ export class DataView {
     const prev = this.app.state.dataViews;
     // The search text only while its filter is the one applied (not typed without Enter, not replaced since).
     const search = this.where && this.searched?.where === this.where ? this.searched.q : '';
-    const next = rememberView(prev, key, { sort: this.sort, where: this.where, search });
+    const next = rememberView(prev, key, { sort: this.sort, where: this.where, search, cols: this.colLayout });
     if (JSON.stringify(next) === JSON.stringify(prev ?? {})) return;
     this.app.state.dataViews = next;
     this.app.saveStateSoon();
@@ -244,6 +247,10 @@ export class DataView {
     const items = [
       { label: 'Copy', icon: 'copy', shortcut: 'Ctrl+C', onClick: () => this.grid.copy() },
       { label: 'Copy rows as INSERT', onClick: () => this.grid.copy(rowsToSql(this.target.table, this.cols, this.grid.selectedRowIndexes().map(i => this.rows[i]))) },
+      '-',
+      { label: 'Choose columns…', icon: 'columns', onClick: () => this.grid.chooseColumns() },
+      col && { label: `Hide column ${col.name}`, disabled: this.grid.order.length <= 1, onClick: () => this.grid.setHidden(p.c, true) },
+      { label: 'Show all columns', disabled: !this.grid.hidden.size, onClick: () => this.grid.setArrangement(this.grid.seq, new Set(), true) },
       '-',
       ...this.editor.menuItems(p),
     ];

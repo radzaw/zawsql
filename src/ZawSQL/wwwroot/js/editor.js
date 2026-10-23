@@ -4,6 +4,9 @@ import { h, esc } from './util.js';
 import { icon } from './icons.js';
 import { expandSnippet } from './library.js';
 import { callAt, activeParam } from './sqlsigs.js';
+import { matchBracket, caretContext, missingCloser } from './sqlbrackets.js';
+
+const PAIRS = { '(': ')', '[': ']', "'": "'", '"': '"', '`': '`' };
 
 export const KEYWORDS = new Set(`ACCESSIBLE ADD AFTER ALGORITHM ALL ALTER ANALYZE AND AS ASC AUTO_INCREMENT BEFORE BEGIN BETWEEN BIGINT BINARY BIT
 BLOB BOOL BOOLEAN BOTH BY CALL CASCADE CASE CHANGE CHAR CHARACTER CHARSET CHECK COLLATE COLUMN COLUMNS COMMENT COMMIT CONDITION
@@ -59,6 +62,9 @@ export function highlightSql(text) {
 const measureCtx = document.createElement('canvas').getContext('2d');
 
 export class SqlEditor {
+  /** Typing an opening bracket or quote adds the closing one (Preferences; the same for every editor). */
+  static autoClose = true;
+
   /**
    * `snippets`: { lookup(trigger) -> {body}|null, vars() -> {DB, TABLE, …} } enables Tab expansion of snippet triggers.
    * `signatures`: async ({ name, qualifier }) -> { name, params: [string], returns?, doc? } | null enables parameter
@@ -77,7 +83,10 @@ export class SqlEditor {
     this.pre = h('pre', { class: 'sqled-hl', 'aria-hidden': 'true' }, this.code);
     this.ta = h('textarea', { class: 'sqled-ta', spellcheck: false, autocomplete: 'off', autocapitalize: 'off', wrap: 'off', placeholder });
     this.snipHint = h('div', { class: 'sqled-snip-hint' }, 'Tab: next field · Shift+Tab: previous · Esc: done');
-    this.main = h('div', { class: 'sqled-main' }, this.pre, this.ta, this.snipHint);
+    // The bracket at the caret and its partner are outlined (between the highlighting and the textarea).
+    this.bm = [h('div', { class: 'sqled-bm' }), h('div', { class: 'sqled-bm' })];
+    for (const el of this.bm) el.style.display = 'none';
+    this.main = h('div', { class: 'sqled-main' }, this.pre, ...this.bm, this.ta, this.snipHint);
     this.el = h('div', { class: 'sqled' }, this.gutter, this.main);
     this.ta.value = value;
     this.ta.readOnly = readOnly;
@@ -95,9 +104,22 @@ export class SqlEditor {
     this.ta.addEventListener('scroll', () => this.syncScroll());
     this.ta.addEventListener('keydown', e => this.onKey(e));
     // The caret moved without an edit: the hint may now be for another argument, or another call.
-    this.ta.addEventListener('keyup', e => { if (this.sigEl && /^(Arrow|Home|End|Page)/.test(e.key)) this.updateSignature(); });
-    this.ta.addEventListener('mouseup', () => { if (this.sigEl) this.updateSignature(); });
-    this.ta.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== this.ta) { this.closeCompletion(); this.closeSignature(); } }, 150));
+    this.ta.addEventListener('keyup', e => {
+      if (!/^(Arrow|Home|End|Page)/.test(e.key)) return;
+      this.markBrackets();
+      if (this.sigEl) this.updateSignature();
+    });
+    this.ta.addEventListener('mouseup', () => {
+      this.markBrackets();
+      if (this.sigEl) this.updateSignature();
+    });
+    this.ta.addEventListener('focus', () => this.markBrackets());
+    this.ta.addEventListener('blur', () => setTimeout(() => {
+      if (document.activeElement === this.ta) return;
+      this.closeCompletion();
+      this.closeSignature();
+      this.markBrackets();
+    }, 150));
     this.ta.addEventListener('mousedown', () => this.closeCompletion());
     new ResizeObserver(() => this.syncScroll()).observe(this.ta);
     this.update();
@@ -123,6 +145,7 @@ export class SqlEditor {
     const lh = parseFloat(getComputedStyle(this.ta).lineHeight) || 18;
     const top = line * lh;
     if (top < this.ta.scrollTop || top > this.ta.scrollTop + this.ta.clientHeight - lh * 2) this.ta.scrollTop = Math.max(0, top - this.ta.clientHeight / 3);
+    this.markBrackets();
   }
 
   scheduleUpdate() {
@@ -141,6 +164,7 @@ export class SqlEditor {
       for (let i = 1; i <= lines; i++) s += i + '\n';
       this.gutterInner.textContent = s;
     }
+    this.findBrackets();
     this.syncScroll();
   }
 
@@ -154,6 +178,7 @@ export class SqlEditor {
     this.gutterInner.style.transform = `translateY(${-ta.scrollTop}px)`;
     if (this.popup) this.positionPopup();
     if (this.sigEl) this.positionSignature();
+    this.positionMarks();
   }
 
   /** Inserts text at the caret, keeping the browser's undo stack intact. */
@@ -181,6 +206,7 @@ export class SqlEditor {
     if (this.sigEl && e.key === 'Escape') { this.closeSignature(); e.preventDefault(); e.stopPropagation(); return; }
     if (this.signatures && e.key === ' ' && e.ctrlKey && e.shiftKey) { e.preventDefault(); this.updateSignature(); return; }
     if (this.ta.readOnly) return;
+    if (SqlEditor.autoClose && !this.snip && !e.ctrlKey && !e.altKey && !e.metaKey && this.autoPair(e.key)) { e.preventDefault(); return; }
     if (this.snip && e.key === 'Tab' && !e.ctrlKey && !e.altKey) { e.preventDefault(); this.gotoStop(this.snip.i + (e.shiftKey ? -1 : 1)); return; }
     if (this.snip && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.endSnippet(); return; }
     if (e.key === ' ' && e.ctrlKey) { e.preventDefault(); this.openCompletion(true); return; }
@@ -234,6 +260,79 @@ export class SqlEditor {
     ta.setSelectionRange(ls, le);
     this.insert(nb);
     ta.setSelectionRange(ls, ls + nb.length);
+  }
+
+  // ---------- brackets ----------
+
+  findBrackets() {
+    const { selectionStart: s, selectionEnd: e, value } = this.ta;
+    this.bracketAt = s === e && document.activeElement === this.ta ? matchBracket(value, s) : null;
+  }
+
+  markBrackets() {
+    this.findBrackets();
+    this.positionMarks();
+  }
+
+  /** Outlines the bracket at the caret and its partner; one without a partner is shown as an error. */
+  positionMarks() {
+    const m = this.bracketAt;
+    const at = m ? [m.at, m.match] : [];
+    const lh = m ? parseFloat(getComputedStyle(this.ta).lineHeight) || 18 : 0;
+    this.bm.forEach((el, i) => {
+      if (!(at[i] >= 0)) { el.style.display = 'none'; return; }
+      const { x, y } = this.caretXY(at[i]);
+      el.classList.toggle('bad', m.match < 0);
+      Object.assign(el.style, { display: '', left: x + 'px', top: y - lh + 'px', width: this.charW + 'px', height: lh + 'px' });
+    });
+  }
+
+  /**
+   * Auto-closing (when the key is handled here): an opening bracket or quote adds its partner (or wraps the
+   * selection), typing the closing one steps over it, and Backspace between an empty pair removes both. Not inside
+   * strings and comments, and only where the pair can't glue onto the next word.
+   */
+  autoPair(key) {
+    const ta = this.ta, v = ta.value, s = ta.selectionStart, e = ta.selectionEnd;
+    const prev = v[s - 1] ?? '', next = v[e] ?? '';
+    if (key === 'Backspace') {
+      if (s !== e || !PAIRS[prev] || PAIRS[prev] !== next || caretContext(v, s - 1) !== 'code') return false;
+      ta.setSelectionRange(s - 1, s + 1);
+      if (!document.execCommand('delete')) {
+        ta.setRangeText('', s - 1, s + 1, 'end');
+        this.update();
+        this.onChange?.();
+      }
+      return true;
+    }
+    if (key.length !== 1) return false;
+    const ctx = caretContext(v, s);
+    // Step over a closer that is already there, unless the text still needs one more.
+    if (s === e && next === key) {
+      if ((key === ')' || key === ']') && ctx === 'code' && !missingCloser(v, key)) return this.moveTo(s + 1);
+      if (ctx === key) return this.moveTo(s + 1); // the quote that ends the string the caret is in
+    }
+    if (!PAIRS[key] || ctx !== 'code') return false;
+    const close = PAIRS[key];
+    if (s !== e) {
+      const sel = v.slice(s, e);
+      this.insert(key + sel + close);
+      ta.setSelectionRange(s + 1, s + 1 + sel.length);
+      return true;
+    }
+    if (next && !/[\s)\],;]/.test(next)) return false;
+    if (close === key && /[\w$'"`]/.test(prev)) return false; // a quote right after a word or another quote
+    this.insert(key + close);
+    this.moveTo(s + 1);
+    if (key === '(' && this.signatures) this.updateSignature();
+    return true;
+  }
+
+  moveTo(pos) {
+    this.ta.setSelectionRange(pos, pos);
+    this.markBrackets();
+    if (this.sigEl) this.updateSignature();
+    return true;
   }
 
   // ---------- autocompletion ----------
@@ -349,7 +448,15 @@ export class SqlEditor {
     if (!it) return;
     if (it.snippet != null) return this.insertSnippet(it.snippet, { from: this.compStart, to: pos });
     this.ta.setSelectionRange(this.compStart, pos);
-    this.insert(it.insert ?? it.label);
+    const text = it.insert ?? it.label;
+    // A function: with auto-closing its ")" comes along, and the caret goes between the brackets.
+    if (SqlEditor.autoClose && text.endsWith('(') && /^$|^[\s)\],;]/.test(this.ta.value[pos] ?? '')) {
+      this.insert(text + ')');
+      this.moveTo(this.ta.selectionStart - 1);
+      if (this.signatures) this.updateSignature();
+      return;
+    }
+    this.insert(text);
   }
 
   closeCompletion() {
