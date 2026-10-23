@@ -853,6 +853,13 @@ select.cell-inp { padding: 0 4px; }
 .xp-issue { display: flex; gap: 10px; align-items: baseline; cursor: default; }
 .xp-issue:hover .xp-badge span { text-decoration: underline; }
 .xp-issue > .muted { font-size: 11px; }
+.xp-advice { display: flex; flex-direction: column; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--border-light); max-height: 30%; overflow: auto; flex: none; }
+.xp-advice:empty { display: none; }
+.xp-advice-title { font-size: 11px; }
+.xp-sugg { display: flex; flex-direction: column; gap: 3px; }
+.xp-sugg .muted { font-size: 11px; }
+.xp-sugg-sql { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.xp-sugg-sql code { font-family: var(--mono); font-size: 11.5px; background: var(--panel); border: 1px solid var(--border-light); border-radius: 6px; padding: 2px 6px; user-select: text; }
 .xp-badge { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; white-space: nowrap; }
 .xp-badge .ic { width: 13px; height: 13px; flex: none; }
 .xp-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
@@ -922,6 +929,16 @@ select.cell-inp { padding: 0 4px; }
 .rp-advice .rp-badge .ic { margin-top: 2px; }
 .rp-card { border: 1px solid var(--border-light); background: var(--panel); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
 .rp-card-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.gr.log-error .gc:nth-child(2) { color: var(--status-critical); font-weight: 600; }
+.gr.log-warning .gc:nth-child(2) { color: var(--status-warning); font-weight: 600; }
+.gr.log-system .gc { color: var(--muted); }
+.ib-finding .muted { font-size: 11px; }
+.ib-section { border: 1px solid var(--border-light); border-radius: 10px; background: var(--panel); }
+.ib-section > summary { padding: 6px 10px; cursor: default; }
+.ib-section[open] > summary { border-bottom: 1px solid var(--border-light); }
+.ib-facts { margin: 6px 10px 0; border-collapse: collapse; }
+.ib-facts td { padding: 1px 16px 1px 0; }
+.ib-text { margin: 0; padding: 8px 10px; font-family: var(--mono); font-size: 11.5px; white-space: pre; overflow: auto; user-select: text; }
 .rp-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
 .rp-tile { border: 1px solid var(--border-light); border-radius: 10px; padding: 6px 10px; display: flex; flex-direction: column; gap: 2px; }
 .rp-tile > .muted:first-child { font-size: 11px; }

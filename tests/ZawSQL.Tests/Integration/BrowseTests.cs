@@ -33,7 +33,7 @@ public class BrowseTests(TestDatabase t)
         var p = Assert.Single(proc.GetProperty("params").EnumerateArray());
         Assert.Equal("IN", p.GetProperty("mode").GetString());
         Assert.Equal("n", p.GetProperty("name").GetString());
-        Assert.Equal("int", p.GetProperty("type").GetString()!.ToLowerInvariant());
+        Assert.Matches(@"^int(\(\d+\))?$", p.GetProperty("type").GetString()!.ToLowerInvariant()); // MariaDB: int(11)
 
         // A function without parameters: only its return type, no parameter row.
         var fn = list.Single(r => r.GetProperty("name").GetString() == "sneaky");

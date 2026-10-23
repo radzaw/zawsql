@@ -98,6 +98,7 @@ public static partial class Explainer
         {
             server = mariaDb ? "mariadb" : "mysql",
             statement = stmt,
+            database = c.Database,
             json,
             table,
             notes,

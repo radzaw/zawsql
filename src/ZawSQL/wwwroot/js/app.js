@@ -25,7 +25,7 @@ import { sortGroups } from './multirunlogic.js';
 import { sessionManager, confirmHostKey, exportDumpDialog, runSqlFile, createDatabaseDialog, preferencesDialog, aboutDialog } from './views/tools.js';
 
 const TYPE_LABEL = { table: 'Table', view: 'View', procedure: 'Procedure', function: 'Function', trigger: 'Trigger', event: 'Event' };
-const DEFAULT_PREFS = { rowsPerPage: 1000, maxResultRows: 10000, theme: 'system', uiZoom: 100, editorFontSize: 13, autoCloseBrackets: true, confirmNoWhere: true, formatKeywordCase: 'upper', formatIndent: '2', checkUpdates: true, showWhatsNew: true, txDefault: 'auto', logTimestamps: true, slowLogMs: DEFAULT_SLOW_MS };
+const DEFAULT_PREFS = { rowsPerPage: 1000, maxResultRows: 10000, theme: 'system', uiZoom: 100, editorFontSize: 13, autoCloseBrackets: true, queryStats: false, confirmNoWhere: true, formatKeywordCase: 'upper', formatIndent: '2', checkUpdates: true, showWhatsNew: true, txDefault: 'auto', logTimestamps: true, slowLogMs: DEFAULT_SLOW_MS };
 
 // ---------------------------------------------------------------- tabs
 
@@ -357,6 +357,7 @@ class App {
         { label: 'Query history…', icon: 'history', onClick: () => this.queryForRun()?.showHistory() },
         { label: 'Explain current statement', icon: 'explain', shortcut: 'Ctrl+Shift+E', disabled: !s.sid, onClick: () => this.queryForRun()?.explain() },
         { label: 'Format SQL', icon: 'format', shortcut: 'Ctrl+Shift+F', onClick: () => { const v = this.queryForRun(); if (v) this.formatEditor(v.editor); } },
+        { label: 'Measure statement statistics', title: 'After each run, show the rows each statement read (by index or by scan), wrote and sorted, and its temporary tables', checked: !!this.prefs.queryStats, onClick: () => { this.prefs.queryStats = !this.prefs.queryStats; this.saveStateSoon(); } },
         '-',
         { label: 'Manual commit (transaction)', icon: 'txmanual', checked: !!this.activeQuery()?.tx, disabled: !s.sid, onClick: () => this.queryForRun()?.toggleManual() },
         { label: 'Commit', icon: 'check', disabled: !this.activeQuery()?.tx?.open, onClick: () => this.activeQuery()?.commit() },

@@ -9,7 +9,7 @@ namespace ZawSQL;
 public sealed record ConnectRequest(string? SessionId, SessionProfile? Profile, string? Password, string? SshSecret = null);
 public sealed record HostKeyRequest(string? Fingerprint);
 /// <summary>Tab: set when the query tab is in manual-commit mode; the statements then run on its own connection.</summary>
-public sealed record ExecRequest(string[] Statements, string? Database, int MaxRows = 10000, bool StopOnError = true, string? Tab = null);
+public sealed record ExecRequest(string[] Statements, string? Database, int MaxRows = 10000, bool StopOnError = true, string? Tab = null, bool Stats = false);
 public sealed record RowsRequest(string Db, string Table, List<RowOp> Ops, string? Tab = null);
 public sealed record TxStartRequest(string? Database, string? Page = null);
 public sealed record KillRequest(long Id);
@@ -324,6 +324,20 @@ public static class Api
             long affected = 0;
             long? insertId = null;
             var executed = 0;
+            // Statement statistics: two reads up front measure what reading the counters costs.
+            List<object>? stats = req.Stats ? [] : null;
+            Dictionary<string, long>? prev = null, overhead = null;
+            if (stats != null)
+            {
+                try
+                {
+                    var b0 = await QueryStats.ReadAsync(c, ct);
+                    prev = await QueryStats.ReadAsync(c, ct);
+                    overhead = QueryStats.Delta(b0, prev, null);
+                }
+                catch (MySqlException) { stats = null; }
+            }
+            var statsMs = 0.0; // time spent reading counters, not counted as the statements' duration
             var sw = Stopwatch.StartNew();
             for (var i = 0; i < req.Statements.Length; i++)
             {
@@ -350,7 +364,7 @@ public static class Api
                             if (r.FieldCount > 0)
                             {
                                 var rs = await Values.ReadAsync(r, Math.Max(0, req.MaxRows), ct);
-                                sets.Add(new { statement = i, sql, columns = rs.Columns, rows = rs.Rows, truncated = rs.Truncated, ms = sw.Elapsed.TotalMilliseconds });
+                                sets.Add(new { statement = i, sql, columns = rs.Columns, rows = rs.Rows, truncated = rs.Truncated, ms = sw.Elapsed.TotalMilliseconds - statsMs });
                             }
                         } while (await r.NextResultAsync(ct));
                         if (r.RecordsAffected > 0) affected += r.RecordsAffected;
@@ -390,10 +404,22 @@ public static class Api
                     log.Finish(line);
                     if (tab != null) tab.Running = null; else ses.Running = null;
                 }
+                if (stats != null && prev != null && i < QueryStats.MaxStatements)
+                {
+                    var t0 = sw.Elapsed.TotalMilliseconds;
+                    try
+                    {
+                        var now = await QueryStats.ReadAsync(c, ct);
+                        stats.Add(new { statement = i, counters = QueryStats.Delta(prev, now, overhead) });
+                        prev = now;
+                    }
+                    catch (Exception) when (!ct.IsCancellationRequested) { stats = null; }
+                    statsMs += sw.Elapsed.TotalMilliseconds - t0;
+                }
             }
-            var ms = sw.Elapsed.TotalMilliseconds;
+            var ms = sw.Elapsed.TotalMilliseconds - statsMs;
             var currentDb = await Db.ScalarAsync(c, null, "SELECT DATABASE()", ct);
-            return new { resultSets = sets, statements = req.Statements.Length, executed, affected, insertId, errors, database = currentDb, ms, transaction = tab?.State(), notes };
+            return new { resultSets = sets, statements = req.Statements.Length, executed, affected, insertId, errors, database = currentDb, ms, transaction = tab?.State(), notes, stats };
         }));
 
         // Visual EXPLAIN on the session's own connection, so temporary tables and variables are visible.
@@ -564,6 +590,12 @@ public static class Api
             await ServerSettings.SetVariableAsync(c, log, req, ct);
             return null;
         }));
+
+        // ---- Host tab › Error log and InnoDB ----
+        s.MapGet("/errorlog", (string sid, int? limit, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, _, _) =>
+            await ServerLogs.ErrorLogAsync(c, limit ?? 2000, ct)));
+        s.MapGet("/innodb", (string sid, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, _, _) =>
+            await ServerLogs.InnodbStatusAsync(c, ct)));
 
         s.MapPost("/kill", (string sid, KillRequest req, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, ses, log) =>
         {

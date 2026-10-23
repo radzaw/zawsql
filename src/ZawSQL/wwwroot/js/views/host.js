@@ -10,6 +10,8 @@ import { InsightView } from './insight.js';
 import { ReplicationView } from './replication.js';
 import { HealthView } from './health.js';
 import { EventsView } from './events.js';
+import { ErrorLogView } from './errorlog.js';
+import { InnodbView } from './innodb.js';
 
 const KINDS = [
   ['databases', 'Databases'],
@@ -17,8 +19,10 @@ const KINDS = [
   ['status', 'Status'],
   ['processes', 'Processes'],
   ['events', 'Events'],
+  ['errorlog', 'Error log'],
   ['monitor', 'Monitor'],
   ['insight', 'Performance'],
+  ['innodb', 'InnoDB'],
   ['replication', 'Replication'],
   ['health', 'Health'],
 ];
@@ -63,9 +67,13 @@ export class HostView {
     this.health.el.style.display = 'none';
     this.events = new EventsView(app);
     this.events.el.style.display = 'none';
+    this.errorlog = new ErrorLogView(app);
+    this.errorlog.el.style.display = 'none';
+    this.innodb = new InnodbView(app);
+    this.innodb.el.style.display = 'none';
     // Kinds shown by their own panel (with their own controls) instead of the grid.
-    this.panels = { events: this.events, monitor: this.monitor, insight: this.insight, replication: this.replication, health: this.health };
-    this.el = h('div', { class: 'view host-view' }, toolbar, this.grid.el, this.events.el, this.monitor.el, this.insight.el, this.replication.el, this.health.el);
+    this.panels = { events: this.events, errorlog: this.errorlog, monitor: this.monitor, insight: this.insight, innodb: this.innodb, replication: this.replication, health: this.health };
+    this.el = h('div', { class: 'view host-view' }, toolbar, this.grid.el, this.events.el, this.errorlog.el, this.monitor.el, this.insight.el, this.innodb.el, this.replication.el, this.health.el);
   }
 
   onShow() {
@@ -100,6 +108,8 @@ export class HostView {
     if (this.kind === 'replication') return this.replication.load();
     if (this.kind === 'health') return this.health.load();
     if (this.kind === 'events') return this.events.load();
+    if (this.kind === 'errorlog') return this.errorlog.load();
+    if (this.kind === 'innodb') return this.innodb.load();
     return this.load();
   }
 

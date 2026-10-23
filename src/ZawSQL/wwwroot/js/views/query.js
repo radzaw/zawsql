@@ -16,6 +16,7 @@ import { findSnippet } from '../library.js';
 import { ExplainView } from './explain.js';
 import { pickServers, groupTargets, confirmMultiRun } from './multirun.js';
 import { combineResults, summarySet, serverStatus, runSummary, sortGroups } from '../multirunlogic.js';
+import { statsSet, statsLine, returnedRows } from '../querystats.js';
 
 const DDL_RE = /^\s*(?:\/\*.*?\*\/\s*)*(create|drop|alter|rename|truncate)\b/is;
 
@@ -110,7 +111,11 @@ export class QueryView {
     });
     this.msg = h('div', { class: 'q-msg' });
     this.plan = null;
-    this.planView = new ExplainView({ onAnalyze: () => this.explain({ analyze: true, sql: this.plan?.statement, ...this.planOn }) });
+    this.planView = new ExplainView({
+      onAnalyze: () => this.explain({ analyze: true, sql: this.plan?.statement, ...this.planOn }),
+      loadTable: (db, table) => get(`/s/${this.planSid}/table`, { db, table }, { quiet: true }),
+      openSql: sql => this.app.openQueryTab(sql, 'Index'),
+    });
     this.planView.el.style.display = 'none';
     this.results = h('div', { class: 'q-results' }, this.resTabs, this.grid.el, this.planView.el, this.msg);
     this.body = h('div', { class: 'q-body' }, h('div', { class: 'q-main' }, this.edWrap, split, this.results));
@@ -394,7 +399,8 @@ export class QueryView {
     this.app.setStatus('Executing query…');
     try {
       this.resultSid = sid;
-      const r = await post(`/s/${sid}/exec`, { statements: stmts.map(s => s.sql), database: db, maxRows: this.app.prefs.maxResultRows, tab: this.txTabFor(sid) });
+      const r = await post(`/s/${sid}/exec`, { statements: stmts.map(s => s.sql), database: db, maxRows: this.app.prefs.maxResultRows, tab: this.txTabFor(sid), stats: !!this.app.prefs.queryStats });
+      r.sqls = stmts.map(s => s.sql);
       this.app.addHistory(mode === 'all' ? text : written.map(s => s.sql).join(';\n'), db); // as written, parameters included
       if (r.transaction) this.tx = { ...this.tx, ...r.transaction };
       this.showResults(r);
@@ -501,7 +507,9 @@ export class QueryView {
   }
 
   showResults(r) {
-    this.sets = r.resultSets;
+    const returned = returnedRows(r.resultSets);
+    // Statement statistics get a result tab of their own, after the results.
+    this.sets = r.stats?.length ? [...r.resultSets, statsSet(r.stats, r.sqls || [], returned)] : r.resultSets;
     this.active = 0;
     this.sort = null;
     this.renderResTabs();
@@ -511,13 +519,14 @@ export class QueryView {
       this.grid.setData([], []);
       if (this.plan) this.showPlan();
     }
-    const last = this.sets[this.sets.length - 1];
+    const last = r.resultSets[r.resultSets.length - 1];
     const parts = [];
     if (r.affected) parts.push(`Affected rows: ${fmtNum(r.affected)}`);
     if (last) parts.push(`Found rows: ${fmtNum(last.rows.length)}${last.truncated ? ` (limited to ${fmtNum(this.app.prefs.maxResultRows)})` : ''}`);
     if (r.insertId) parts.push(`Last insert id: ${r.insertId}`);
     parts.push(`Duration for ${r.executed} of ${r.statements} quer${r.statements === 1 ? 'y' : 'ies'}: ${fmtSecs(r.ms)}`);
     this.msg.className = 'q-msg' + (r.errors.length ? ' err' : '');
+    if (r.stats?.length) parts.push(statsLine(r.stats, returned));
     this.msg.textContent = (r.errors.length ? `Error: ${r.errors[0].message}   ` : '') + parts.join('   ');
   }
 
@@ -525,6 +534,7 @@ export class QueryView {
   renderResTabs() {
     const tabs = this.sets.map((s, i) => {
       const label = s.summary ? `Servers (${s.rows.length})`
+        : s.stats ? 'Statistics'
         : s.multi ? `#${s.statement + 1} on ${s.servers.length} server${s.servers.length === 1 ? '' : 's'} (${fmtNum(s.rows.length)}${s.truncated ? '+' : ''}r × ${s.columns.length - 1}c)`
         : `Result #${i + 1} (${fmtNum(s.rows.length)}${s.truncated ? '+' : ''}r × ${s.columns.length}c)`;
       const b = h('button', { class: 'res-tab' + (s.summary ? ' res-summary' : ''), title: s.multi && !s.summary ? `${s.sql}\n\nServers: ${s.servers.join(', ')}` : s.sql, 'data-i': i }, label);
@@ -554,6 +564,7 @@ export class QueryView {
     if (this.txPending) { try { await this.txPending; } catch { return; } }
     const { sid, db } = onSid ? { sid: onSid, db: onDb } : this.app.sel;
     this.planOn = onSid ? { sid: onSid, db: onDb } : null; // Analyze measures on the same session
+    this.planSid = sid;
     if (!sid) return this.app.showError(new Error('Not connected. Open a session first.'));
     if (sql == null) {
       const sel = this.editor.selection();
@@ -591,7 +602,7 @@ export class QueryView {
     this.editInfo.style.display = '';
     [...this.resTabList.children].forEach(b => b.classList.toggle('active', b.dataset.i === String(i)));
     const s = this.sets[i];
-    this.cols = s.columns.map(c => ({ name: c.name, kind: c.kind, type: c.type, readOnly: true, title: `${c.name}: ${c.type}${c.table ? ' (' + c.table + ')' : ''}` }));
+    this.cols = s.columns.map(c => ({ name: c.name, kind: c.kind, type: c.type, readOnly: true, title: c.title || `${c.name}: ${c.type}${c.table ? ' (' + c.table + ')' : ''}` }));
     this.rows = s.rows.slice();
     this.grid.sort = null;
     this.resetEditing();
@@ -620,6 +631,7 @@ export class QueryView {
       this.editInfo.title = why;
     };
     if (set.multi) return readOnly('Results from several servers can\'t be edited.');
+    if (set.stats) return readOnly('What each statement did on the server, from its session status counters.');
     if (sid && this.app.isReadOnly(sid)) return readOnly('The session is in read-only mode.');
     if (!sid || !this.app.conns.has(sid) || !based.length) return readOnly('The result has no columns from a table.');
     if (new Set(based.map(c => c.schema + '.' + c.table)).size > 1) return readOnly('The result combines columns from several tables.');

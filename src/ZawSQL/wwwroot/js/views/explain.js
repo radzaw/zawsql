@@ -7,6 +7,7 @@ import { Grid } from '../grid.js';
 import { highlightSql } from '../editor.js';
 import { formatSql } from '../sqlformat.js';
 import { parsePlan, findIssues, totalCost, tables, parseAnalyzeTree, flattenSteps, misestimates } from '../explainlogic.js';
+import { suggestIndexes, finishSuggestion, describeColumns } from '../indexadvice.js';
 
 const VIEWS = [['diagram', 'Diagram'], ['measured', 'Measured'], ['table', 'Table'], ['json', 'JSON']];
 const SEV_ICON = { critical: 'error', warning: 'warning', info: 'info', good: 'check', ok: 'info' };
@@ -17,19 +18,27 @@ const pct = v => `${Math.round(v * 10) / 10}%`;
 const badge = (severity, text, title) => h('span', { class: `xp-badge sev-${severity}`, title: title || '', html: icon(SEV_ICON[severity] || 'info') + `<span>${esc(text)}</span>` });
 
 export class ExplainView {
-  /** `onAnalyze()` re-explains with ANALYZE (which runs the statement). */
-  constructor({ onAnalyze } = {}) {
+  /**
+   * `onAnalyze()` re-explains with ANALYZE (which runs the statement); `loadTable(db, table)` returns a table's columns
+   * and indexes (an /table response) to check index suggestions; `openSql(sql)` opens SQL in a new query tab.
+   */
+  constructor({ onAnalyze, loadTable, openSql } = {}) {
+    this.loadTable = loadTable;
+    this.openSql = openSql;
     this.onAnalyze = onAnalyze;
     this.view = 'diagram';
     this.switcher = h('div', { class: 'subtabs' });
     this.analyzeBtn = h('button', { class: 'btn', title: 'Runs the statement to measure actual rows and time', onclick: () => this.onAnalyze?.() }, 'Analyze (runs it)');
     this.caption = h('div', { class: 'xp-caption' });
     this.issuesBox = h('div', { class: 'xp-issues' });
+    this.adviceBox = h('div', { class: 'xp-advice' });
+    this.issuesBox.addEventListener('click', e => this.focusNode(e));
+    this.adviceBox.addEventListener('click', e => this.focusNode(e));
     this.body = h('div', { class: 'xp-body' });
     this.grid = new Grid({ gutter: false, emptyText: '' });
     this.el = h('div', { class: 'xp' },
       h('div', { class: 'xp-bar' }, this.switcher, h('div', { class: 'grow' }), this.analyzeBtn),
-      this.caption, this.issuesBox, this.body);
+      this.caption, this.issuesBox, this.adviceBox, this.body);
   }
 
   /** Shows an /explain result. */
@@ -46,6 +55,45 @@ export class ExplainView {
     if (this.view === 'measured' && !this.steps) this.view = 'diagram';
     if (r.analyzed) this.view = this.steps ? 'measured' : 'diagram'; // MariaDB's ANALYZE puts actual rows and time on the diagram
     this.render();
+    this.loadAdvice();
+  }
+
+  /** Index suggestions: candidates from the plan, checked against each table's columns and indexes. */
+  async loadAdvice() {
+    const r = this.r;
+    this.adviceBox.replaceChildren();
+    let cands = [];
+    try { cands = this.root ? suggestIndexes(r, this.root) : []; } catch { /* a plan this doesn't understand */ }
+    if (!cands.length || !this.loadTable) return;
+    const metas = new Map();
+    const found = [];
+    for (const c of cands) {
+      const key = `${c.db}.${c.table}`;
+      if (!metas.has(key)) metas.set(key, this.loadTable(c.db, c.table).catch(() => null));
+      const s = finishSuggestion(c, await metas.get(key));
+      if (s) found.push(s);
+    }
+    if (this.r !== r || !found.length) return;
+    this.adviceBox.replaceChildren(h('div', { class: 'xp-advice-title' }, h('b', null, 'Suggested indexes'),
+      h('span', { class: 'muted' }, ' – starting points to review: an index speeds up reads but costs space and slows writes, and building one on a big table takes a while. Explain again after adding it.')),
+    ...found.map(s => this.adviceEl(s)));
+  }
+
+  adviceEl(s) {
+    const table = s.db ? `${s.db}.${s.table}` : s.table;
+    const why = { scan: `reads every row of ${s.alias !== s.table ? `${table} (as ${s.alias})` : table}`, join: `joins ${table} without an index`, filter: `keeps few of the rows it reads from ${table}` }[s.reason];
+    if (s.existing) {
+      return h('div', { class: 'xp-issue', 'data-node': s.nodeId },
+        badge('info', `${table}: index ${s.existing} already starts with ${s.columns.map(c => c.name).join(', ')}`),
+        h('span', { class: 'muted' }, 'The optimizer chose not to use it. The condition may match too many rows, or the statistics are stale – try ANALYZE TABLE and explain again.'));
+    }
+    const copy = h('button', { class: 'btn', onclick: async () => {
+      try { await navigator.clipboard.writeText(s.sql + ';'); copy.textContent = 'Copied'; } catch { /* clipboard denied */ }
+    } }, 'Copy');
+    return h('div', { class: 'xp-sugg', 'data-node': s.nodeId },
+      h('div', null, badge('warning', `The plan ${why}`), h('span', { class: 'muted' }, ` An index on ${s.columns.map(c => c.name).join(', ')} ${describeColumns(s.columns)}.`)),
+      h('div', { class: 'xp-sugg-sql' }, h('code', { html: highlightSql(s.sql) }), copy,
+        this.openSql ? h('button', { class: 'btn', title: 'Opens the statement in a new query tab to review and run', onclick: () => this.openSql(`-- Suggested by Visual EXPLAIN for:\n-- ${this.r.statement.replace(/\s+/g, ' ').slice(0, 300)}\n-- Review before running: building an index on a big table takes time and disk space.\n${s.sql};\n`) }, 'Open in query tab') : ''));
   }
 
   render() {
@@ -79,16 +127,19 @@ export class ExplainView {
     }
     this.issuesBox.replaceChildren(...this.issues.map(i => h('div', { class: 'xp-issue', 'data-node': i.nodeId ?? '' },
       badge(i.severity, i.text), h('span', { class: 'muted' }, i.hint))));
-    this.issuesBox.onclick = e => {
-      const id = e.target.closest('.xp-issue')?.dataset.node;
-      if (!id || this.view !== 'diagram') return;
-      const card = this.body.querySelector(`.xp-card[data-id="${id}"]`);
-      if (!card) return;
-      card.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
-      card.classList.remove('flash');
-      void card.offsetWidth;
-      card.classList.add('flash');
-    };
+  }
+
+  /** Clicking a finding or a suggestion shows its table in the diagram. */
+  focusNode(e) {
+    if (e.target.closest('button')) return;
+    const id = e.target.closest('[data-node]')?.dataset.node;
+    if (!id || this.view !== 'diagram') return;
+    const card = this.body.querySelector(`.xp-card[data-id="${id}"]`);
+    if (!card) return;
+    card.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
+    card.classList.remove('flash');
+    void card.offsetWidth;
+    card.classList.add('flash');
   }
 
   renderDiagram(cost) {
