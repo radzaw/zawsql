@@ -152,6 +152,59 @@ public class ReplicationTests(TestDatabase t)
         await WaitOnReplicaAsync("SELECT v FROM rep_conflict WHERE id = 100", "primary");
     }
 
+    [ReplicaFact]
+    public async Task Skipping_the_failed_transaction_restarts_the_applier_and_keeps_the_replica_row()
+    {
+        var sid = await ReplicaSidAsync();
+        var roSid = await ReplicaSidAsync(readOnly: true);
+        await ChannelAsync(sid, c => c.GetProperty("sqlRunning").GetString() == "Yes");
+        Assert.False((await t.App.PostAsync($"/s/{sid}/replication/skip", new { channel = "" })).Ok); // no error to skip
+
+        await t.ExecRootAsync("CREATE TABLE rep_skip (id INT PRIMARY KEY, v VARCHAR(10))");
+        await WaitOnReplicaAsync("SELECT COUNT(*) FROM rep_skip", "0");
+        await ReplicaScalarAsync("INSERT INTO rep_skip VALUES (1, 'replica')", t.Db);
+        await t.ExecRootAsync("INSERT INTO rep_skip VALUES (1, 'primary')");
+        var broken = await ChannelAsync(sid, c => c.GetProperty("sqlError").ValueKind == JsonValueKind.Object);
+        var failed = broken.GetProperty("sqlError").GetProperty("transaction").GetString();
+        try
+        {
+            Assert.False((await t.App.PostAsync($"/s/{roSid}/replication/skip", new { channel = "" })).Ok);
+            if (failed != null) // a transaction other than the one shown is never skipped
+                Assert.False((await t.App.PostAsync($"/s/{sid}/replication/skip", new { channel = "", transaction = "00000000-0000-0000-0000-000000000000:1" })).Ok);
+            var skip = await t.App.PostAsync($"/s/{sid}/replication/skip", new { channel = "", transaction = failed });
+            var r = skip.Expect();
+            Assert.Contains(skip.Log, l => l.Contains("SQL_THREAD"));
+            if (failed != null) Assert.Equal(failed, r.GetProperty("transaction").GetString());
+            await ChannelAsync(sid, c => c.GetProperty("sqlRunning").GetString() == "Yes" && c.GetProperty("sqlError").ValueKind == JsonValueKind.Null);
+            Assert.Equal("replica", await ReplicaScalarAsync("SELECT v FROM rep_skip WHERE id = 1", t.Db));
+            // Later changes replicate again.
+            await t.ExecRootAsync("INSERT INTO rep_skip VALUES (2, 'primary')");
+            await WaitOnReplicaAsync("SELECT COUNT(*) FROM rep_skip", "2");
+        }
+        finally
+        {
+            // Repair the replica if an assert failed before the skip.
+            var ch = (await StatusAsync(sid)).GetProperty("channels")[0];
+            if (ch.GetProperty("sqlError").ValueKind == JsonValueKind.Object)
+            {
+                await ReplicaScalarAsync("DELETE FROM rep_skip WHERE id = 1", t.Db);
+                (await t.App.PostAsync($"/s/{sid}/replication/start", new { channel = "" })).Expect();
+            }
+        }
+    }
+
+    [Fact]
+    public void The_failed_gtid_comes_from_the_worker_or_the_error_message()
+    {
+        const string g = "3e11fa47-71ca-11e1-9e33-c80aa9429562:23";
+        Assert.Equal(g, Replication.FailedGtid([(g, null)], null));
+        Assert.Equal(g, Replication.FailedGtid([("", $"Worker 1 failed executing transaction '{g}' at source log binlog.000002, end_log_pos 1234")], null));
+        Assert.Equal(g, Replication.FailedGtid([], $"Coordinator stopped ... Worker 1 failed executing transaction '{g}' at ..."));
+        Assert.Equal("3e11fa47-71ca-11e1-9e33-c80aa9429562:tag_1:5", Replication.FailedGtid([("3e11fa47-71ca-11e1-9e33-c80aa9429562:tag_1:5", null)], null));
+        Assert.Null(Replication.FailedGtid([("ANONYMOUS", "failed executing transaction 'ANONYMOUS' at")], "x"));
+        Assert.Null(Replication.FailedGtid([("x'; DROP TABLE t; --", null)], null));
+    }
+
     [Fact]
     public void Mysql_and_mariadb_replica_status_columns_are_normalized()
     {

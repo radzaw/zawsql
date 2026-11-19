@@ -946,6 +946,7 @@ select.cell-inp { padding: 0 4px; }
 .rp-tile-sub { font-size: 11px; }
 .rp-lag { font-size: 20px; font-weight: 600; }
 .rp-error { border-left: 4px solid var(--status-critical); padding: 4px 10px; display: flex; flex-direction: column; gap: 2px; background: color-mix(in srgb, var(--status-critical) 7%, transparent); }
+.rp-error-actions { display: flex; gap: 6px; margin: 4px 0 2px; }
 .rp-error-msg { font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap; user-select: text; }
 .rp-split { display: grid; grid-template-columns: minmax(320px, 1fr) minmax(320px, 1fr); gap: 12px; align-items: start; }
 .rp-chart .mon-card { margin: 0; }

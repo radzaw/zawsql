@@ -496,12 +496,13 @@ public static class Api
             return null;
         }));
 
-        // ---- replication (status polled, not logged; start/stop logged) ----
+        // ---- replication (status polled, not logged; start/stop/skip logged) ----
         s.MapGet("/replication", (string sid, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, _, _) =>
             await Replication.StatusAsync(c, ct)));
         s.MapPost("/replication/{action}", (string sid, string action, ReplicationActionRequest req, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, ses, log) =>
         {
             if (ses.Profile.ReadOnly) throw new ApiException(ReadOnlyMessage);
+            if (action == "skip") return await Replication.SkipAsync(c, log, req.Channel, req.Transaction, ct);
             await Replication.ControlAsync(c, log, action, req.Channel, ct);
             return null;
         }));

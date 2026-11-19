@@ -1,16 +1,18 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 using MySqlConnector;
 
 namespace ZawSQL;
 
-public sealed record ReplicationActionRequest(string? Channel);
+/// <param name="Transaction">For "skip": the failed transaction (GTID) the user saw, so a different one is never skipped.</param>
+public sealed record ReplicationActionRequest(string? Channel, string? Transaction = null);
 
 /// <summary>
 /// Replication status of a server, as a replica (one entry per channel / named connection) and as a primary
 /// (binary log, GTIDs, replicas). MySQL 8.x and MariaDB use different statements and column names
 /// (Source_* / Replica_* vs. Master_* / Slave_*); this normalizes them. Polled by the UI, so not logged.
 /// </summary>
-public static class Replication
+public static partial class Replication
 {
     const int ParseError = 1064, AccessDenied = 1227;
 
@@ -218,15 +220,98 @@ public static class Replication
         };
     }
 
+    [GeneratedRegex(@"transaction '([^']+)'")]
+    private static partial Regex FailedTransactionRegex();
+
+    /// <summary>A GTID (uuid:n, or uuid:tag:n since MySQL 8.3): the only thing embedded in SET GTID_NEXT.</summary>
+    [GeneratedRegex(@"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(:[A-Za-z_][A-Za-z0-9_]{0,31})?:[0-9]+$")]
+    private static partial Regex GtidRegex();
+
+    /// <summary>The GTID of the transaction the applier failed on (MySQL): from the worker table, else from the error messages.</summary>
+    public static string? FailedGtid(IEnumerable<(string? applying, string? message)> workers, string? statusMessage)
+    {
+        string? FromMessage(string? m) => m != null && FailedTransactionRegex().Match(m) is { Success: true } x ? x.Groups[1].Value : null;
+        return workers.SelectMany(w => new[] { w.applying, FromMessage(w.message) })
+            .Append(FromMessage(statusMessage))
+            .FirstOrDefault(g => g != null && GtidRegex().IsMatch(g));
+    }
+
+    /// <summary>
+    /// Skips the transaction the applier (SQL thread) stopped on and starts the applier again. With MySQL's GTIDs on, the
+    /// failed GTID is committed as an empty transaction (sql_replica_skip_counter isn't allowed there); otherwise, and on
+    /// MariaDB, the skip counter skips one event group. Returns the skipped GTID, if known.
+    /// </summary>
+    public static async Task<object> SkipAsync(MySqlConnection c, SqlLog log, string? channel, string? expectedTransaction, CancellationToken ct)
+    {
+        var mariaDb = c.ServerVersion.Contains("MariaDB", StringComparison.OrdinalIgnoreCase);
+        channel ??= "";
+        var (rows, denied) = mariaDb
+            ? await FirstAsync(c, ct, "SHOW ALL REPLICAS STATUS", "SHOW ALL SLAVES STATUS", "SHOW SLAVE STATUS")
+            : await FirstAsync(c, ct, "SHOW REPLICA STATUS", "SHOW SLAVE STATUS");
+        if (denied != null) throw new ApiException(denied);
+        var row = rows.FirstOrDefault(r => (Get(r, "Channel_Name", "Connection_name") ?? "") == channel)
+            ?? throw new ApiException($"There is no replication channel {(channel == "" ? "(default)" : $"'{channel}'")} on this server.");
+        if (Get(row, "Replica_SQL_Running", "Slave_SQL_Running") == "Yes")
+            throw new ApiException("The applier (SQL thread) is running, so there is no failed transaction to skip.");
+        if (Long(Get(row, "Last_SQL_Errno")) is not > 0)
+            throw new ApiException("The applier (SQL thread) has no error, so there is no failed transaction to skip. Start replication instead.");
+
+        string? skipped = null;
+        if (!mariaDb && await Db.ScalarAsync(c, null, "SELECT @@GLOBAL.gtid_mode", ct) is "ON" or "ON_PERMISSIVE")
+        {
+            var workers = new List<(string?, string?)>();
+            try
+            {
+                foreach (var w in await Db.RowsAsync(c, null, """
+                    SELECT APPLYING_TRANSACTION, LAST_ERROR_MESSAGE FROM performance_schema.replication_applier_status_by_worker
+                    WHERE CHANNEL_NAME = @p0 AND LAST_ERROR_NUMBER <> 0 ORDER BY LAST_ERROR_TIMESTAMP DESC
+                    """, ct, channel))
+                    workers.Add((w["APPLYING_TRANSACTION"], w["LAST_ERROR_MESSAGE"]));
+            }
+            catch (MySqlException) { /* performance_schema off: the status message may still name the transaction */ }
+            skipped = FailedGtid(workers, Get(row, "Last_SQL_Error"))
+                ?? throw new ApiException("The GTID of the failed transaction can't be determined, so it can't be skipped here.");
+            if (!string.IsNullOrEmpty(expectedTransaction) && !string.Equals(expectedTransaction, skipped, StringComparison.OrdinalIgnoreCase))
+                throw new ApiException($"The applier now stops on transaction {skipped}, not {expectedTransaction}. Refresh and check the error again.");
+            // An empty transaction with the failed GTID: the applier then treats that transaction as already applied.
+            await Db.ExecAsync(c, log, $"SET GTID_NEXT = {SqlLiteral.Quote(skipped)}", ct);
+            try
+            {
+                await Db.ExecAsync(c, log, "BEGIN", ct);
+                await Db.ExecAsync(c, log, "COMMIT", ct);
+            }
+            finally
+            {
+                await Db.ExecAsync(c, log, "SET GTID_NEXT = 'AUTOMATIC'", CancellationToken.None);
+            }
+        }
+        else if (mariaDb)
+        {
+            // The skip counter belongs to the session's default connection (the named connections of multi-source replication).
+            await Db.ExecAsync(c, log, $"SET @@SESSION.default_master_connection = {SqlLiteral.Quote(channel)}", ct);
+            try { await Db.ExecAsync(c, log, "SET GLOBAL sql_slave_skip_counter = 1", ct); }
+            finally { await Db.ExecAsync(c, log, "SET @@SESSION.default_master_connection = ''", CancellationToken.None); }
+        }
+        else
+        {
+            try { await Db.ExecAsync(c, log, "SET GLOBAL sql_replica_skip_counter = 1", ct); }
+            catch (MySqlException ex) when (ex.Number == 1193) { await Db.ExecAsync(c, log, "SET GLOBAL sql_slave_skip_counter = 1", ct); } // before MySQL 8.0.26
+        }
+
+        await ControlAsync(c, log, "start", channel, ct, sqlThreadOnly: true);
+        return new { transaction = skipped };
+    }
+
     /// <summary>START / STOP REPLICA for one channel (MySQL) or named connection (MariaDB); empty = the default one.</summary>
-    public static async Task ControlAsync(MySqlConnection c, SqlLog log, string action, string? channel, CancellationToken ct)
+    public static async Task ControlAsync(MySqlConnection c, SqlLog log, string action, string? channel, CancellationToken ct, bool sqlThreadOnly = false)
     {
         var verb = action switch { "start" => "START", "stop" => "STOP", _ => throw new ApiException($"Unknown replication action: {action}") };
         var mariaDb = c.ServerVersion.Contains("MariaDB", StringComparison.OrdinalIgnoreCase);
         var named = !string.IsNullOrEmpty(channel);
+        var thread = sqlThreadOnly ? " SQL_THREAD" : "";
         string Sql(string noun) => mariaDb
-            ? $"{verb} {noun}{(named ? " " + SqlLiteral.Quote(channel!) : "")}"
-            : $"{verb} {noun}{(named ? " FOR CHANNEL " + SqlLiteral.Quote(channel!) : "")}";
+            ? $"{verb} {noun}{(named ? " " + SqlLiteral.Quote(channel!) : "")}{thread}"
+            : $"{verb} {noun}{thread}{(named ? " FOR CHANNEL " + SqlLiteral.Quote(channel!) : "")}";
         try
         {
             await Db.ExecAsync(c, log, Sql("REPLICA"), ct);

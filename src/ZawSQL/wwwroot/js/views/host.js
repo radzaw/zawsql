@@ -263,7 +263,13 @@ export class HostView {
         { label: 'Drop database…', icon: 'trash', disabled: this.app.isReadOnly(sid), onClick: () => this.app.dropDatabase(sid, row[0]) });
     }
     if (this.kind === 'processes' && row) {
-      items.push('-', { label: `Kill process ${row[0]}`, icon: 'stop', disabled: this.app.isReadOnly(sid), onClick: () => this.kill(row[0]) });
+      // With several rows selected and the click inside the selection, kill them all; otherwise just the clicked row.
+      const sel = this.grid.selectedRowIndexes();
+      const ids = sel.length > 1 && sel.includes(p.r) ? sel.map(i => this.grid.rows[i][0]) : [row[0]];
+      items.push('-', {
+        label: ids.length > 1 ? `Kill ${ids.length} processes` : `Kill process ${row[0]}`,
+        icon: 'stop', disabled: this.app.isReadOnly(sid), onClick: () => this.kill(ids),
+      });
     }
     if (this.kind === 'variables' && row) {
       items.push('-', { label: 'Edit value…', icon: 'settings', disabled: this.app.isReadOnly(sid) || row[2] == null, onClick: () => this.editVariable(row) },
@@ -274,13 +280,21 @@ export class HostView {
     contextMenu(e.clientX, e.clientY, items);
   }
 
-  async kill(id) {
-    if (!(await confirmDlg(this.app.prodWarn(this.app.sel.sid) + `Kill process ${id}?`, { ok: 'Kill', danger: true }))) return;
-    try {
-      await post(`/s/${this.app.sel.sid}/kill`, { id: Number(id) });
-      this.load();
-    } catch (e) {
-      this.app.showError(e);
+  async kill(ids) {
+    const sid = this.app.sel.sid;
+    const what = ids.length > 1 ? `${ids.length} processes (${ids.join(', ')})` : `process ${ids[0]}`;
+    if (!(await confirmDlg(this.app.prodWarn(sid) + `Kill ${what}?`, { ok: 'Kill', danger: true }))) return;
+    // One at a time, so a process that has already ended doesn't stop the rest from being killed.
+    const failed = [];
+    for (const id of ids) {
+      try {
+        await post(`/s/${sid}/kill`, { id: Number(id) });
+      } catch (e) {
+        failed.push(`${id}: ${e.message}`);
+      }
     }
+    if (ids.length > 1) this.app.setStatus(`Killed ${ids.length - failed.length} of ${ids.length} processes`);
+    if (failed.length) this.app.showError(new Error(failed.length === 1 && ids.length === 1 ? failed[0].replace(/^\d+: /, '') : `Could not kill:\n${failed.join('\n')}`));
+    this.load();
   }
 }

@@ -110,14 +110,21 @@ export class ReplicationView {
     const ro = this.app.isReadOnly(this.sid);
     const running = ch.ioRunning !== 'No' || ch.sqlRunning !== 'No';
     const tile = (label, main, sub) => h('div', { class: 'rp-tile' }, h('div', { class: 'muted' }, label), h('div', { class: 'rp-tile-main' }, main), sub ? h('div', { class: 'muted rp-tile-sub' }, sub) : '');
+    const skipBtn = ch.sqlError && ch.sqlRunning !== 'Yes'
+      ? h('div', { class: 'rp-error-actions' }, h('button', {
+        class: 'btn', disabled: ro, title: ro ? 'Not available in read-only mode' : 'Skip the transaction the applier stopped on and start the applier again',
+        onclick: () => this.skip(ch),
+      }, 'Skip failed transaction…'))
+      : '';
     const errors = [
-      ch.sqlError && ['Applier (SQL thread) error', ch.sqlError, 'Fix the cause on this replica (for example remove the conflicting row), then start replication again.'],
-      ch.ioError && ['Receiver (IO thread) error', ch.ioError, 'Check that the source is reachable and the replication user and password are valid.'],
-    ].filter(Boolean).map(([title, e, hint]) => h('div', { class: 'rp-error' },
+      ch.sqlError && ['Applier (SQL thread) error', ch.sqlError, 'Fix the cause on this replica (for example remove the conflicting row), then start replication again – or skip the failed transaction if this replica already has its changes.', skipBtn],
+      ch.ioError && ['Receiver (IO thread) error', ch.ioError, 'Check that the source is reachable and the replication user and password are valid.', ''],
+    ].filter(Boolean).map(([title, e, hint, actions]) => h('div', { class: 'rp-error' },
       badge('critical', `${title} ${e.number}${e.time ? ` at ${e.time}` : ''}`),
       h('div', { class: 'rp-error-msg' }, e.message ?? ''),
       e.transaction ? h('div', { class: 'muted' }, `Failed transaction: ${e.transaction}`) : '',
-      h('div', { class: 'muted' }, hint)));
+      h('div', { class: 'muted' }, hint),
+      actions));
 
     const key = ch.channel || '';
     if (!this.charts.has(key)) this.charts.set(key, new TimeChart({ title: 'Seconds behind the source', format: 'int', series: [{ key: 'lag', label: 'Lag (s)', slot: 1 }] }));
@@ -193,6 +200,19 @@ export class ReplicationView {
       await post(`/s/${this.sid}/replication/${action}`, { channel: ch.channel || '' });
       this.load();
     } catch (e) { this.app.showError(e); }
+  }
+
+  async skip(ch) {
+    const e = ch.sqlError;
+    const msg = `Skip the transaction that stopped replication from ${sourceLabel(ch)} (${channelLabel(ch)})${e.transaction ? `, ${e.transaction}` : ''}?\n\n`
+      + `Error ${e.number}: ${e.message ?? ''}\n\n`
+      + 'Its changes are never applied on this replica, so the replica can differ from the source afterwards. Skip only when the replica already has these changes or they don\'t matter.';
+    if (!(await confirmDlg(this.app.prodWarn(this.sid) + msg, { ok: 'Skip and start applier', danger: true }))) return;
+    try {
+      const r = await post(`/s/${this.sid}/replication/skip`, { channel: ch.channel || '', transaction: e.transaction || null });
+      this.app.setStatus(r?.transaction ? `Skipped transaction ${r.transaction}` : 'Skipped the failed transaction');
+      this.load();
+    } catch (err) { this.app.showError(err); }
   }
 }
 
