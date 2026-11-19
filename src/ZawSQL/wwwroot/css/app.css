@@ -525,6 +525,34 @@ select.cell-inp { padding: 0 4px; }
 .pi .pl { flex: 1; overflow: hidden; text-overflow: ellipsis; }
 .pi.sel .pl { font-weight: 600; }
 .pi .pk { color: var(--faint); font-size: 11px; padding-left: 12px; min-width: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis; }
+.sqled-fl { color: transparent; }
+.sqled-fl mark { color: transparent; border-radius: 2px; background: color-mix(in srgb, var(--t-num) 22%, transparent); }
+.sqled-fl mark.cur { background: color-mix(in srgb, var(--t-num) 45%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--t-num) 80%, transparent); }
+.sqled-fb {
+  position: absolute; z-index: 22; top: 4px; right: 18px; display: flex; align-items: flex-start; gap: 2px; padding: 4px;
+  max-width: calc(100% - 26px); background: var(--raised); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow-m); font: var(--font);
+}
+.sqled-fb-rows { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.sqled-fb-row { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.sqled-fb .sqled-fb-row + .sqled-fb-row { display: none; }
+.sqled-fb.replacing .sqled-fb-row + .sqled-fb-row { display: flex; }
+.sqled-fb-in { width: 220px; min-width: 80px; flex: 0 1 auto; height: 24px; padding: 0 6px; margin-right: 2px; font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 5px; outline: none; }
+.sqled-fb-in:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-ring); }
+.sqled-fb-in.bad { border-color: var(--danger); }
+.sqled-fb-opt, .sqled-fb-btn, .sqled-fb-txt {
+  display: inline-flex; align-items: center; justify-content: center; height: 24px; min-width: 24px; padding: 0 4px; flex: none;
+  font: inherit; font-size: 11.5px; color: var(--muted); background: transparent; border: 1px solid transparent; border-radius: 5px; cursor: default;
+}
+.sqled-fb-opt { font-family: var(--mono); }
+.sqled-fb-opt:hover, .sqled-fb-btn:hover, .sqled-fb-txt:hover { background: var(--accent-soft); color: var(--ink); }
+.sqled-fb-opt[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+.sqled-fb-txt { padding: 0 7px; border-color: var(--line); }
+.sqled-fb-toggle svg { transition: transform .12s; }
+.sqled-fb.replacing .sqled-fb-toggle svg { transform: rotate(90deg); }
+.sqled-fb-count { min-width: 74px; padding: 0 6px; font-size: 11.5px; color: var(--muted); white-space: nowrap; text-align: center; }
+.sqled-fb-count.bad { color: var(--danger); max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.sqled-fb-label { padding: 0 6px; line-height: 24px; color: var(--muted); white-space: nowrap; }
+.sqled-gb { align-items: center; }
 .sqled-bm { position: absolute; pointer-events: none; border-radius: 2px; background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent); }
 .sqled-bm.bad { background: color-mix(in srgb, var(--danger) 18%, transparent); box-shadow: inset 0 0 0 1px var(--danger); }
 .sqled-sig {
@@ -932,6 +960,16 @@ select.cell-inp { padding: 0 4px; }
 .gr.log-error .gc:nth-child(2) { color: var(--status-critical); font-weight: 600; }
 .gr.log-warning .gc:nth-child(2) { color: var(--status-warning); font-weight: 600; }
 .gr.log-system .gc { color: var(--muted); }
+.bl-hint { padding: 0 12px 4px; font-size: 11.5px; }
+.bl-file { max-width: 260px; }
+.bl-pos { width: 96px; }
+.gr.bl-odd .gc { background: color-mix(in srgb, var(--accent) 4%, transparent); }
+.gr.bl-meta .gc { color: var(--faint); }
+.gr.bl-gtid .gc:nth-child(2) { color: var(--t-kw); font-weight: 600; }
+.gr.bl-commit .gc:nth-child(2) { color: var(--ok); font-weight: 600; }
+.gr.bl-rows .gc:nth-child(6) { color: var(--t-id); }
+.gr.bl-target .gc { background: color-mix(in srgb, var(--status-critical) 10%, transparent); }
+.gr.bl-target .gc:first-child { box-shadow: inset 3px 0 0 var(--status-critical); }
 .ib-finding .muted { font-size: 11px; }
 .ib-section { border: 1px solid var(--border-light); border-radius: 10px; background: var(--panel); }
 .ib-section > summary { padding: 6px 10px; cursor: default; }

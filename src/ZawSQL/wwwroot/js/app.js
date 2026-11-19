@@ -343,6 +343,10 @@ class App {
         { label: 'Refresh', icon: 'refresh', shortcut: 'F5', onClick: () => this.refresh() },
         { label: 'Copy', icon: 'copy', shortcut: 'Ctrl+C', onClick: () => document.execCommand('copy') },
         '-',
+        { label: 'Find…', icon: 'filter', shortcut: 'Ctrl+F', disabled: !this.activeQuery(), onClick: () => this.activeQuery()?.editor.openFind(false) },
+        { label: 'Replace…', shortcut: 'Ctrl+H', disabled: !this.activeQuery(), onClick: () => this.activeQuery()?.editor.openFind(true) },
+        { label: 'Go to line…', shortcut: 'Ctrl+G', disabled: !this.activeQuery(), onClick: () => this.activeQuery()?.editor.openGoto() },
+        '-',
         { label: 'Preferences…', icon: 'settings', onClick: () => preferencesDialog(this) },
       ]],
       ['Query', () => [
@@ -452,6 +456,7 @@ class App {
     const rows = [
       ['F5', 'Refresh tree / current tab'], ['F9', 'Execute all SQL in the query tab'], ['Ctrl+F9', 'Execute selection'],
       ['Ctrl+Shift+F9 / Ctrl+Enter', 'Execute statement at the caret'], ['Ctrl+Space', 'Autocomplete'], ['Ctrl+Shift+Space', 'Parameter hint for the call at the caret'], ['Ctrl+/', 'Toggle line comment'],
+      ['Ctrl+F / Ctrl+H', 'Find / replace in the SQL editor (Alt+C case, Alt+W word, Alt+R regex)'], ['F3 / Shift+F3', 'Next / previous match'], ['Ctrl+G', 'Go to line (line or line:column)'],
       ['Tab / Shift+Tab', 'Indent / outdent'], ['Tab after a trigger', 'Expand snippet (then Tab: next field)'],
       ['Ctrl+Shift+E', 'Visual EXPLAIN of the statement at the cursor'], ['Ctrl+Shift+F', 'Format SQL (selection or all)'], ['Ctrl+S', 'Save query to library'], ['Ctrl+Shift+S', 'Save query to library as new'], ['Ctrl+T', 'New query tab'], ['F2 / Enter / typing', 'Edit grid cell'],
       ['Ctrl+Enter', 'Apply multi-line cell edit'], ['Insert', 'Insert row'], ['Ctrl+Delete', 'Delete selected rows'],

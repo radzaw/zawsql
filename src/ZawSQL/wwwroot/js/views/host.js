@@ -8,6 +8,7 @@ import { exportGridDialog } from './tools.js';
 import { MonitorView } from './monitor.js';
 import { InsightView } from './insight.js';
 import { ReplicationView } from './replication.js';
+import { BinlogView } from './binlog.js';
 import { HealthView } from './health.js';
 import { EventsView } from './events.js';
 import { ErrorLogView } from './errorlog.js';
@@ -24,6 +25,7 @@ const KINDS = [
   ['insight', 'Performance'],
   ['innodb', 'InnoDB'],
   ['replication', 'Replication'],
+  ['binlog', 'Binary log'],
   ['health', 'Health'],
 ];
 
@@ -63,6 +65,8 @@ export class HostView {
     this.insight.el.style.display = 'none';
     this.replication = new ReplicationView(app);
     this.replication.el.style.display = 'none';
+    this.binlog = new BinlogView(app);
+    this.binlog.el.style.display = 'none';
     this.health = new HealthView(app);
     this.health.el.style.display = 'none';
     this.events = new EventsView(app);
@@ -72,8 +76,8 @@ export class HostView {
     this.innodb = new InnodbView(app);
     this.innodb.el.style.display = 'none';
     // Kinds shown by their own panel (with their own controls) instead of the grid.
-    this.panels = { events: this.events, errorlog: this.errorlog, monitor: this.monitor, insight: this.insight, innodb: this.innodb, replication: this.replication, health: this.health };
-    this.el = h('div', { class: 'view host-view' }, toolbar, this.grid.el, this.events.el, this.errorlog.el, this.monitor.el, this.insight.el, this.innodb.el, this.replication.el, this.health.el);
+    this.panels = { events: this.events, errorlog: this.errorlog, monitor: this.monitor, insight: this.insight, innodb: this.innodb, replication: this.replication, binlog: this.binlog, health: this.health };
+    this.el = h('div', { class: 'view host-view' }, toolbar, this.grid.el, this.events.el, this.errorlog.el, this.monitor.el, this.insight.el, this.innodb.el, this.replication.el, this.binlog.el, this.health.el);
   }
 
   onShow() {
@@ -106,11 +110,19 @@ export class HostView {
     if (this.kind === 'monitor') return this.monitor.schedule(0);
     if (this.kind === 'insight') return this.insight.load();
     if (this.kind === 'replication') return this.replication.load();
+    if (this.kind === 'binlog') return this.binlog.load();
     if (this.kind === 'health') return this.health.load();
     if (this.kind === 'events') return this.events.load();
     if (this.kind === 'errorlog') return this.errorlog.load();
     if (this.kind === 'innodb') return this.innodb.load();
     return this.load();
+  }
+
+  /** Host tab › Binary log at a position (see BinlogView.show). */
+  showBinlog(target) {
+    this.binlog.show(target);
+    if (this.kind === 'binlog') this.binlog.start(this.app.sel.sid);
+    else this.switchKind('binlog');
   }
 
   switchKind(k) {

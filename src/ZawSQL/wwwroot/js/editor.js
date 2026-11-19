@@ -5,6 +5,7 @@ import { icon } from './icons.js';
 import { expandSnippet } from './library.js';
 import { callAt, activeParam } from './sqlsigs.js';
 import { matchBracket, caretContext, missingCloser } from './sqlbrackets.js';
+import { findMatches, expandReplacement, replaceAll, matchIndexFrom, matchAt, matchSummary, lineColumnOffset, initialQuery } from './editorfind.js';
 
 const PAIRS = { '(': ')', '[': ']', "'": "'", '"': '"', '`': '`' };
 
@@ -65,6 +66,9 @@ export class SqlEditor {
   /** Typing an opening bracket or quote adds the closing one (Preferences; the same for every editor). */
   static autoClose = true;
 
+  /** The last search, shared by every editor so a new tab starts with it. */
+  static lastFind = { query: '', replace: '', opts: { caseSensitive: false, wholeWord: false, regex: false } };
+
   /**
    * `snippets`: { lookup(trigger) -> {body}|null, vars() -> {DB, TABLE, …} } enables Tab expansion of snippet triggers.
    * `signatures`: async ({ name, qualifier }) -> { name, params: [string], returns?, doc? } | null enables parameter
@@ -86,7 +90,10 @@ export class SqlEditor {
     // The bracket at the caret and its partner are outlined (between the highlighting and the textarea).
     this.bm = [h('div', { class: 'sqled-bm' }), h('div', { class: 'sqled-bm' })];
     for (const el of this.bm) el.style.display = 'none';
-    this.main = h('div', { class: 'sqled-main' }, this.pre, ...this.bm, this.ta, this.snipHint);
+    // Find matches are marked in a layer of their own under the highlighting (same text, transparent, with <mark>s).
+    this.flCode = h('code');
+    this.fl = h('pre', { class: 'sqled-hl sqled-fl', 'aria-hidden': 'true' }, this.flCode);
+    this.main = h('div', { class: 'sqled-main' }, this.fl, this.pre, ...this.bm, this.ta, this.snipHint);
     this.el = h('div', { class: 'sqled' }, this.gutter, this.main);
     this.ta.value = value;
     this.ta.readOnly = readOnly;
@@ -165,16 +172,19 @@ export class SqlEditor {
       this.gutterInner.textContent = s;
     }
     this.findBrackets();
+    if (this.findOpen) this.refreshFind();
     this.syncScroll();
   }
 
   syncScroll() {
     const ta = this.ta;
-    // Keep the highlight layer exactly as large as the textarea's scrollable client area.
-    this.pre.style.right = ta.offsetWidth - ta.clientWidth + 'px';
-    this.pre.style.bottom = ta.offsetHeight - ta.clientHeight + 'px';
-    this.pre.scrollTop = ta.scrollTop;
-    this.pre.scrollLeft = ta.scrollLeft;
+    // Keep the highlight layers exactly as large as the textarea's scrollable client area.
+    for (const layer of [this.pre, this.fl]) {
+      layer.style.right = ta.offsetWidth - ta.clientWidth + 'px';
+      layer.style.bottom = ta.offsetHeight - ta.clientHeight + 'px';
+      layer.scrollTop = ta.scrollTop;
+      layer.scrollLeft = ta.scrollLeft;
+    }
     this.gutterInner.style.transform = `translateY(${-ta.scrollTop}px)`;
     if (this.popup) this.positionPopup();
     if (this.sigEl) this.positionSignature();
@@ -194,6 +204,7 @@ export class SqlEditor {
   onKey(e) {
     // Enter / Tab / Esc while an input method (Chinese, Japanese …) composes a word belong to the input method.
     if (e.isComposing || e.keyCode === 229) return;
+    if (this.findKey(e)) return;
     if (this.popup) {
       const n = this.compList.length;
       if (e.key === 'ArrowDown') { this.compSel = (this.compSel + 1) % n; this.renderPopup(); e.preventDefault(); return; }
@@ -209,6 +220,7 @@ export class SqlEditor {
     if (SqlEditor.autoClose && !this.snip && !e.ctrlKey && !e.altKey && !e.metaKey && this.autoPair(e.key)) { e.preventDefault(); return; }
     if (this.snip && e.key === 'Tab' && !e.ctrlKey && !e.altKey) { e.preventDefault(); this.gotoStop(this.snip.i + (e.shiftKey ? -1 : 1)); return; }
     if (this.snip && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.endSnippet(); return; }
+    if (this.findOpen && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.closeFind(); return; }
     if (e.key === ' ' && e.ctrlKey) { e.preventDefault(); this.openCompletion(true); return; }
     if (this.onFormat && (e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'f') { e.preventDefault(); this.onFormat(); return; }
     if (e.key === 'Tab' && !e.ctrlKey && !e.altKey) {
@@ -260,6 +272,262 @@ export class SqlEditor {
     ta.setSelectionRange(ls, le);
     this.insert(nb);
     ta.setSelectionRange(ls, ls + nb.length);
+  }
+
+  // ---------- find / replace / go to line ----------
+
+  /** Ctrl+F, Ctrl+H, F3 / Shift+F3 and Ctrl+G in the editor; true when the key was handled. */
+  findKey(e) {
+    const ctrl = (e.ctrlKey || e.metaKey) && !e.altKey;
+    const k = e.key.toLowerCase();
+    if (ctrl && !e.shiftKey && (k === 'f' || k === 'h')) { e.preventDefault(); this.openFind(k === 'h'); return true; }
+    if (ctrl && !e.shiftKey && k === 'g') { e.preventDefault(); this.openGoto(); return true; }
+    if (e.key === 'F3' && !e.ctrlKey && !e.altKey) {
+      e.preventDefault();
+      if (SqlEditor.lastFind.query) this.findStep(e.shiftKey);
+      else this.openFind(false);
+      return true;
+    }
+    return false;
+  }
+
+  get findOpen() { return !!this.fb?.el.isConnected; }
+
+  buildFindBar() {
+    const st = SqlEditor.lastFind;
+    const opt = (key, label, title) => {
+      const b = h('button', { class: 'sqled-fb-opt', title, 'aria-pressed': String(!!st.opts[key]), onclick: () => {
+        st.opts[key] = !st.opts[key];
+        this.syncFindOpts();
+        this.refreshFind(true);
+      } }, label);
+      b.dataset.opt = key;
+      return b;
+    };
+    const tb = (ic, title, onclick) => h('button', { class: 'sqled-fb-btn', title, html: icon(ic), onclick });
+    const find = h('input', { class: 'sqled-fb-in', placeholder: 'Find', spellcheck: false, 'aria-label': 'Find' });
+    const replace = h('input', { class: 'sqled-fb-in', placeholder: 'Replace', spellcheck: false, 'aria-label': 'Replace' });
+    const count = h('span', { class: 'sqled-fb-count', 'aria-live': 'polite' });
+    const toggle = h('button', { class: 'sqled-fb-btn sqled-fb-toggle', title: 'Toggle replace (Ctrl+H)', html: icon('next'), onclick: () => this.showReplace(!this.fb.replacing) });
+    const replaceRow = h('div', { class: 'sqled-fb-row' }, replace,
+      h('button', { class: 'sqled-fb-txt', title: 'Replace this match and go to the next one (Enter)', onclick: () => this.replaceOne() }, 'Replace'),
+      h('button', { class: 'sqled-fb-txt', title: 'Replace all matches (Ctrl+Enter)', onclick: () => this.replaceAllMatches() }, 'All'));
+    const el = h('div', { class: 'sqled-fb', role: 'search' }, toggle,
+      h('div', { class: 'sqled-fb-rows' },
+        h('div', { class: 'sqled-fb-row' }, find,
+          opt('caseSensitive', 'Aa', 'Match case (Alt+C)'), opt('wholeWord', 'W', 'Whole word (Alt+W)'), opt('regex', '.*', 'Regular expression (Alt+R): $1 and \\n in the replacement'),
+          count,
+          tb('up', 'Previous match (Shift+Enter, Shift+F3)', () => this.findStep(true)),
+          tb('down', 'Next match (Enter, F3)', () => this.findStep(false)),
+          tb('close', 'Close (Esc)', () => this.closeFind())),
+        replaceRow));
+    // Buttons keep the focus where it is (in an input, or the editor).
+    el.addEventListener('mousedown', e => { if (e.target.closest('button')) e.preventDefault(); });
+    find.addEventListener('input', () => { st.query = find.value; this.refreshFind(true); });
+    replace.addEventListener('input', () => { st.replace = replace.value; });
+    el.addEventListener('keydown', e => {
+      const k = e.key.toLowerCase();
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.closeFind(); return; }
+      if (e.altKey && !e.ctrlKey && ['c', 'w', 'r'].includes(k)) {
+        e.preventDefault();
+        el.querySelector(`[data-opt="${{ c: 'caseSensitive', w: 'wholeWord', r: 'regex' }[k]}"]`).click();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && (k === 'f' || k === 'h')) { e.preventDefault(); this.openFind(k === 'h'); return; }
+      if (e.key === 'F3') { e.preventDefault(); this.findStep(e.shiftKey); return; }
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.target === replace) (e.ctrlKey || e.metaKey ? this.replaceAllMatches() : this.replaceOne());
+      else this.findStep(e.shiftKey);
+    });
+    this.fb = { el, find, replace, count, toggle, replaceRow, replacing: false };
+    this.syncFindOpts();
+  }
+
+  syncFindOpts() {
+    for (const b of this.fb.el.querySelectorAll('[data-opt]')) b.setAttribute('aria-pressed', String(!!SqlEditor.lastFind.opts[b.dataset.opt]));
+  }
+
+  showReplace(on) {
+    this.fb.replacing = on && !this.ta.readOnly;
+    this.fb.el.classList.toggle('replacing', this.fb.replacing);
+    this.fb.toggle.hidden = this.ta.readOnly;
+  }
+
+  /** Opens the find bar (with the replace row for Ctrl+H), starting with the selected text. */
+  openFind(replace) {
+    if (!this.fb) this.buildFindBar();
+    const st = SqlEditor.lastFind;
+    const q = initialQuery(this.selection().text);
+    if (q != null) st.query = q;
+    this.fb.find.value = st.query;
+    this.fb.replace.value = st.replace;
+    this.closeGoto();
+    if (!this.findOpen) this.main.append(this.fb.el);
+    this.showReplace(replace || this.fb.replacing);
+    this.syncFindOpts();
+    const input = replace && this.fb.replacing && q != null ? this.fb.replace : this.fb.find;
+    input.focus();
+    input.select();
+    this.refreshFind(true);
+  }
+
+  closeFind() {
+    if (!this.findOpen) return;
+    this.fb.el.remove();
+    this.found = null;
+    this.flCode.innerHTML = '';
+    this.ta.focus({ preventScroll: true });
+    this.markBrackets();
+  }
+
+  /** Searches again; `reveal` selects the first match from the caret (typing in the find box, changing an option). */
+  refreshFind(reveal = false) {
+    if (!this.fb) return;
+    if (reveal) this.findNote = null;
+    const { query, opts } = SqlEditor.lastFind;
+    const r = findMatches(this.ta.value, query, opts);
+    const { selectionStart: s, selectionEnd: e } = this.ta;
+    r.cur = matchAt(r.matches, s, e);
+    if (reveal && r.cur < 0 && r.matches.length) {
+      r.cur = matchIndexFrom(r.matches, s);
+      const m = r.matches[r.cur];
+      this.ta.setSelectionRange(m.start, m.end);
+      this.scrollToRange(m.start, m.end);
+    }
+    this.found = r;
+    this.renderFind();
+  }
+
+  renderFind() {
+    const r = this.found;
+    if (!r) return;
+    const v = this.ta.value;
+    let html = '', at = 0;
+    r.matches.forEach((m, i) => {
+      html += esc(v.slice(at, m.start)) + `<mark class="fm${i === r.cur ? ' cur' : ''}">${esc(v.slice(m.start, m.end))}</mark>`;
+      at = m.end;
+    });
+    this.flCode.innerHTML = r.matches.length ? html + esc(v.slice(at)) + '\n ' : '';
+    this.fb.count.textContent = this.findNote ?? (SqlEditor.lastFind.query ? matchSummary(r, r.cur) : '');
+    this.fb.count.classList.toggle('bad', !!r.error);
+    this.fb.find.classList.toggle('bad', !!SqlEditor.lastFind.query && !r.matches.length);
+    this.syncScroll();
+  }
+
+  /** Selects the next (or previous) match, wrapping around. Works with the find bar closed too (F3). */
+  findStep(backward) {
+    this.findNote = null;
+    if (!this.found) {
+      const { query, opts } = SqlEditor.lastFind;
+      this.found = findMatches(this.ta.value, query, opts);
+    }
+    const r = this.found;
+    if (!r.matches.length) return;
+    const { selectionStart: s, selectionEnd: e } = this.ta;
+    this.revealMatch(matchIndexFrom(r.matches, backward ? s : e, backward));
+    if (!this.findOpen) { this.found = null; this.ta.focus(); }
+  }
+
+  revealMatch(i) {
+    const m = this.found.matches[i];
+    this.ta.setSelectionRange(m.start, m.end);
+    this.found.cur = i;
+    this.scrollToRange(m.start, m.end);
+    if (this.findOpen) this.renderFind();
+    this.markBrackets();
+  }
+
+  /** Scrolls so that [start, end) is visible, with some room around it. */
+  scrollToRange(start, end) {
+    const ta = this.ta;
+    const lh = parseFloat(getComputedStyle(ta).lineHeight) || 18;
+    const a = this.caretXY(start), b = this.caretXY(end);
+    if (a.y - lh < 0 || a.y > ta.clientHeight - lh) ta.scrollTop = Math.max(0, ta.scrollTop + a.y - lh - ta.clientHeight / 3);
+    if (a.x < 0 || b.x > ta.clientWidth - 16) ta.scrollLeft = Math.max(0, ta.scrollLeft + a.x - ta.clientWidth / 3);
+    this.syncScroll();
+  }
+
+  /** Replaces the selected match and selects the next one; without a selected match, goes to the next match first. */
+  replaceOne() {
+    if (this.ta.readOnly) return;
+    this.findNote = null;
+    this.refreshFind();
+    const r = this.found, st = SqlEditor.lastFind;
+    if (r.cur < 0) return this.findStep(false);
+    const m = r.matches[r.cur];
+    const text = expandReplacement(st.replace, m, st.opts);
+    const focus = document.activeElement;
+    this.ta.focus({ preventScroll: true });
+    this.ta.setSelectionRange(m.start, m.end);
+    this.insert(text);
+    this.update();
+    const next = this.found;
+    if (next.matches.length) this.revealMatch(matchIndexFrom(next.matches, m.start + text.length));
+    focus?.focus?.();
+  }
+
+  /** Replaces every match in one edit, so a single undo restores them all. */
+  replaceAllMatches() {
+    if (this.ta.readOnly) return;
+    const st = SqlEditor.lastFind;
+    const r = replaceAll(this.ta.value, st.query, st.replace, st.opts);
+    if (!r.count) return;
+    const ta = this.ta, focus = document.activeElement;
+    const { scrollTop, scrollLeft, selectionStart } = ta;
+    ta.focus({ preventScroll: true });
+    ta.setSelectionRange(0, ta.value.length);
+    this.insert(r.text);
+    const pos = Math.min(selectionStart, ta.value.length);
+    ta.setSelectionRange(pos, pos);
+    ta.scrollTop = scrollTop;
+    ta.scrollLeft = scrollLeft;
+    this.findNote = `Replaced ${r.count.toLocaleString('en-US')}`;
+    this.update();
+    focus?.focus?.();
+  }
+
+  /** Ctrl+G: a small bar asking for "line" or "line:column". */
+  openGoto() {
+    if (!this.gb) {
+      const input = h('input', { class: 'sqled-fb-in', spellcheck: false, 'aria-label': 'Go to line' });
+      const el = h('div', { class: 'sqled-fb sqled-gb' }, h('span', { class: 'sqled-fb-label' }, 'Go to line'), input);
+      input.addEventListener('input', () => input.classList.remove('bad'));
+      input.addEventListener('keydown', e => {
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.closeGoto(true); }
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        e.stopPropagation();
+        const pos = lineColumnOffset(this.ta.value, input.value);
+        if (pos == null) { input.classList.add('bad'); return; }
+        this.closeGoto(true);
+        this.ta.setSelectionRange(pos, pos);
+        this.scrollToRange(pos, pos);
+        this.markBrackets();
+      });
+      input.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== input) this.closeGoto(false); }, 0));
+      this.gb = { el, input };
+    }
+    const v = this.ta.value, s = this.ta.selectionStart;
+    const line = v.slice(0, s).split('\n').length;
+    this.gb.input.placeholder = `Line, or line:column (1–${this.lines})`;
+    this.gb.input.value = String(line);
+    this.gb.input.classList.remove('bad');
+    if (this.findOpen) {
+      this.fb.el.remove();
+      this.found = null;
+      this.flCode.innerHTML = '';
+    }
+    this.main.append(this.gb.el);
+    this.gb.input.focus();
+    this.gb.input.select();
+  }
+
+  closeGoto(focusEditor) {
+    if (!this.gb?.el.isConnected) return;
+    this.gb.el.remove();
+    if (focusEditor) this.ta.focus({ preventScroll: true });
   }
 
   // ---------- brackets ----------

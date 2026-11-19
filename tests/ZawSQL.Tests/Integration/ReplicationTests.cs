@@ -169,6 +169,11 @@ public class ReplicationTests(TestDatabase t)
         try
         {
             Assert.False((await t.App.PostAsync($"/s/{roSid}/replication/skip", new { channel = "" })).Ok);
+            // "Show in relay log" opens the relay log where the applier stopped: the failed transaction is there.
+            var relay = (await t.App.GetAsync($"/s/{sid}/binlog/events?log=relay&file={Uri.EscapeDataString(broken.GetProperty("relayFile").GetString()!)}&from={broken.GetProperty("relayPos").GetInt64()}&limit=200")).Expect();
+            var infos = relay.GetProperty("events").EnumerateArray().Select(e => e.GetProperty("info").GetString() ?? "").ToList();
+            if (failed != null) Assert.Contains(infos, i => i.Contains(failed));
+            Assert.Contains(infos, i => i.Contains("rep_skip"));
             if (failed != null) // a transaction other than the one shown is never skipped
                 Assert.False((await t.App.PostAsync($"/s/{sid}/replication/skip", new { channel = "", transaction = "00000000-0000-0000-0000-000000000000:1" })).Ok);
             var skip = await t.App.PostAsync($"/s/{sid}/replication/skip", new { channel = "", transaction = failed });

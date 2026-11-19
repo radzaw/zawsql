@@ -111,10 +111,15 @@ export class ReplicationView {
     const running = ch.ioRunning !== 'No' || ch.sqlRunning !== 'No';
     const tile = (label, main, sub) => h('div', { class: 'rp-tile' }, h('div', { class: 'muted' }, label), h('div', { class: 'rp-tile-main' }, main), sub ? h('div', { class: 'muted rp-tile-sub' }, sub) : '');
     const skipBtn = ch.sqlError && ch.sqlRunning !== 'Yes'
-      ? h('div', { class: 'rp-error-actions' }, h('button', {
-        class: 'btn', disabled: ro, title: ro ? 'Not available in read-only mode' : 'Skip the transaction the applier stopped on and start the applier again',
-        onclick: () => this.skip(ch),
-      }, 'Skip failed transaction…'))
+      ? h('div', { class: 'rp-error-actions' },
+        ch.relayFile ? h('button', {
+          class: 'btn', title: 'Open the relay log at the position the applier stopped, with the failed transaction highlighted',
+          onclick: () => this.app.views.host.showBinlog({ log: 'relay', channel: ch.channel || '', file: ch.relayFile, from: ch.relayPos, gtid: ch.sqlError.transaction || null }),
+        }, 'Show in relay log') : '',
+        h('button', {
+          class: 'btn', disabled: ro, title: ro ? 'Not available in read-only mode' : 'Skip the transaction the applier stopped on and start the applier again',
+          onclick: () => this.skip(ch),
+        }, 'Skip failed transaction…'))
       : '';
     const errors = [
       ch.sqlError && ['Applier (SQL thread) error', ch.sqlError, 'Fix the cause on this replica (for example remove the conflicting row), then start replication again – or skip the failed transaction if this replica already has its changes.', skipBtn],
@@ -174,7 +179,9 @@ export class ReplicationView {
     const semi = s.semiSync ? Object.entries(s.semiSync).map(([k, v]) => `${k.replace('Rpl_semi_sync_', '').replace(/_/g, ' ')}: ${v}`).join(' · ') : null;
     const table = (cols, rows) => h('table', { class: 'edit-table rp-table' }, h('thead', null, h('tr', null, cols.map(c => h('th', null, c)))), h('tbody', null, rows));
     return h('section', { class: 'rp-card' },
-      h('div', { class: 'rp-card-head' }, h('b', null, 'As a primary'), h('span', { class: 'muted' }, `${s.connected.length} replica${s.connected.length === 1 ? '' : 's'} connected`)),
+      h('div', { class: 'rp-card-head' }, h('b', null, 'As a primary'), h('span', { class: 'muted' }, `${s.connected.length} replica${s.connected.length === 1 ? '' : 's'} connected`),
+        h('div', { class: 'grow' }),
+        h('button', { class: 'btn', title: 'Browse the events of the binary log', onclick: () => this.app.views.host.showBinlog({ log: 'binary' }) }, 'Browse binary log')),
       h('table', { class: 'rp-details' },
         h('tr', null, h('td', { class: 'muted' }, 'Binary log position'), h('td', null, s.binlog ? pos(s.binlog.file, s.binlog.position) : '–')),
         gtid ? h('tr', null, h('td', { class: 'muted' }, s.server === 'mariadb' ? 'GTID binlog position' : 'Executed GTIDs'), h('td', null, h('div', { class: 'rp-gtid' }, gtidParts(gtid).map(p => h('div', null, p))))) : '',

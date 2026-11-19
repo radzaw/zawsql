@@ -507,6 +507,12 @@ public static class Api
             return null;
         }));
 
+        // ---- binary log / relay log viewer (browsed, not logged) ----
+        s.MapGet("/binlog/files", (string sid, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, _, _) =>
+            await Binlog.FilesAsync(c, ct)));
+        s.MapGet("/binlog/events", (string sid, string? log, string? file, long? from, int? limit, string? channel, ConnectionManager cm, CancellationToken ct) =>
+            Meta(cm, sid, ct, async (c, _, _) => await Binlog.EventsAsync(c, log, file, from, limit, channel, ct)));
+
         // ---- server health report (facts only; the checks run in the UI; read-only, not logged) ----
         s.MapGet("/health", (string sid, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, _, _) =>
             await HealthReport.CollectAsync(c, ct)));
