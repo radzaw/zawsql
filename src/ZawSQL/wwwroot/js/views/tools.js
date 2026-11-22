@@ -607,6 +607,12 @@ export async function preferencesDialog(app) {
   const indent = opt([['2', '2 spaces'], ['4', '4 spaces'], ['tab', 'Tab']], p.formatIndent);
   const txDefault = opt(TX_DEFAULTS, p.txDefault || 'auto');
   const slowMs = opt(SLOW_CHOICES.map(ms => [String(ms), thresholdLabel(ms)]), slowThreshold(p.slowLogMs));
+  const claudeModel = opt([['', 'Claude Code default'], ['sonnet', 'Sonnet'], ['opus', 'Opus'], ['haiku', 'Haiku (fastest)']], p.claudeModel || '');
+  const claudePath = h('input', { class: 'inp', spellcheck: false, value: p.claudePath || '', placeholder: '(found automatically)' });
+  // Shows where Claude Code was found (and its version), or that it wasn't.
+  get('/claude/status', null, { quiet: true }).then(s => {
+    claudePath.placeholder = s.found ? `${s.path}${s.version ? ` (${s.version})` : ''}` : 'Not found – install Claude Code, or enter the path to claude';
+  }).catch(() => {});
   const ok = await modal({
     title: 'Preferences',
     width: 440,
@@ -624,6 +630,8 @@ export async function preferencesDialog(app) {
       h('label', { class: 'frow' }, h('span', null, 'Safety:'), h('label', { class: 'chk' }, noWhere, ' Confirm UPDATE/DELETE without WHERE')),
       h('label', { class: 'frow', title: 'Statements that took longer are highlighted in the SQL log, with their duration. Hover over any statement there to see how long it took.' }, h('span', null, 'Mark slow statements:'), slowMs),
       h('label', { class: 'frow', title: 'Manual commit keeps changes in a transaction until you commit or roll back. Each tab can still be switched with its toolbar button.' }, h('span', null, 'New query tabs:'), txDefault),
+      h('label', { class: 'frow', title: 'Ask Claude (Ctrl+K in a query tab) runs the Claude Code command line, signed in with your Claude subscription.' }, h('span', null, 'Ask Claude model:'), claudeModel),
+      h('label', { class: 'frow', title: 'The claude executable. Leave empty to look for it on PATH and where its installers put it.' }, h('span', null, 'Claude Code path:'), claudePath),
       h('label', { class: 'frow' }, h('span', null, 'Updates:'), h('label', { class: 'chk' }, checkUpdates, ' Check for new versions once a day')),
       h('label', { class: 'frow' }, h('span', null, ''), h('label', { class: 'chk' }, showWhatsNew, " Show what's new after an update"))),
     buttons: [{ label: 'OK', value: true, primary: true }, { label: 'Cancel', value: false }],
@@ -643,6 +651,8 @@ export async function preferencesDialog(app) {
     formatIndent: indent.value,
     txDefault: txDefault.value,
     slowLogMs: Number(slowMs.value),
+    claudeModel: claudeModel.value,
+    claudePath: claudePath.value.trim(),
   });
   app.applyPrefs();
   app.saveStateSoon();

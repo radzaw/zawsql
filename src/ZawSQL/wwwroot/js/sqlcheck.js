@@ -6,8 +6,12 @@ const NO_SCAN = new Set(['SHOW', 'DESCRIBE', 'DESC', 'USE', 'HELP']);
 const WRITE_WORDS = new Set(['INSERT', 'UPDATE', 'DELETE', 'REPLACE', 'CREATE', 'DROP', 'ALTER', 'TRUNCATE', 'RENAME', 'GRANT', 'REVOKE', 'OUTFILE', 'DUMPFILE']);
 const FUNCTION_NAMES = new Set(['INSERT', 'REPLACE', 'TRUNCATE']);
 
-/** Words outside strings and comments, with nesting depth and the next non-space character. */
-function tokens(sql) {
+/**
+ * Words outside strings and comments, with nesting depth and the next non-space character. `escapes`: whether a
+ * backslash escapes the next character in a string (off under sql_mode NO_BACKSLASH_ESCAPES, where '\' is a string).
+ * A ";" outside strings and comments is a word of its own. /*! … *\/ and MariaDB's /*M! … *\/ are run by the server.
+ */
+function tokens(sql, escapes = true) {
   const out = [];
   let i = 0, depth = 0, executable = false;
   const n = sql.length;
@@ -15,7 +19,7 @@ function tokens(sql) {
     const c = sql[i];
     if (c === "'" || c === '"' || c === '`') {
       i++;
-      while (i < n && sql[i] !== c) i += sql[i] === '\\' && c !== '`' ? 2 : 1;
+      while (i < n && sql[i] !== c) i += escapes && sql[i] === '\\' && c !== '`' ? 2 : 1;
       i++;
       continue;
     }
@@ -25,13 +29,14 @@ function tokens(sql) {
       continue;
     }
     if (c === '/' && sql[i + 1] === '*') {
-      if (sql[i + 2] === '!') executable = true;
+      if (sql[i + 2] === '!' || (/[Mm]/.test(sql[i + 2] ?? '') && sql[i + 3] === '!')) executable = true;
       const e = sql.indexOf('*/', i + 2);
       i = e < 0 ? n : e + 2;
       continue;
     }
     if (c === '(') { depth++; i++; continue; }
     if (c === ')') { depth--; i++; continue; }
+    if (c === ';') { out.push({ word: ';', depth, next: '' }); i++; continue; }
     if (/[A-Za-z0-9_$]/.test(c)) {
       let j = i;
       while (j < n && /[A-Za-z0-9_$]/.test(sql[j])) j++;
@@ -46,26 +51,39 @@ function tokens(sql) {
   return { list: out, executable };
 }
 
-/** True when the statement only reads (no data or schema changes). */
-export function isReadOnlyStatement(sql) {
-  const { list, executable } = tokens(sql);
+function readsOnly({ list, executable }) {
   if (executable) return false;
-  if (!list.length) return true;
-  const first = list[0].word;
+  // A trailing ";" is fine; anything after one is a second statement.
+  const semi = list.findIndex(t => t.word === ';');
+  if (semi >= 0 && list.slice(semi + 1).some(t => t.word !== ';')) return false;
+  const words = list.filter(t => t.word !== ';');
+  if (!words.length) return true;
+  const first = words[0].word;
   if (!READ_FIRST.has(first)) return false;
   if (NO_SCAN.has(first)) return true;
-  return !list.some((t, i) => WRITE_WORDS.has(t.word)
+  return !words.some((t, i) => WRITE_WORDS.has(t.word)
     && !(t.next === '(' && FUNCTION_NAMES.has(t.word))
-    && !(t.word === 'UPDATE' && list[i - 1]?.word === 'FOR'));
+    && !(t.word === 'UPDATE' && words[i - 1]?.word === 'FOR'));
 }
 
-/** True for UPDATE / DELETE (also after WITH ...) that have no top-level WHERE clause. */
-export function lacksWhere(sql) {
-  const { list } = tokens(sql);
-  const top = list.filter(t => t.depth === 0);
+/**
+ * True when the statement only reads (no data or schema changes), read with and without backslash escapes, so that
+ * "SELECT '\'; DELETE …" counts as a change on a server with NO_BACKSLASH_ESCAPES.
+ */
+export function isReadOnlyStatement(sql) {
+  return readsOnly(tokens(sql, true)) && readsOnly(tokens(sql, false));
+}
+
+function lacksWhereIn({ list }) {
+  const top = list.filter(t => t.depth === 0 && t.word !== ';');
   const verbIdx = top.findIndex(t => t.word === 'UPDATE' || t.word === 'DELETE');
   if (verbIdx < 0) return false;
   // The statement must start with the verb (or a WITH clause leading to it); skip "... FOR UPDATE" etc.
   if (verbIdx > 0 && top[0].word !== 'WITH') return false;
   return !top.slice(verbIdx).some(t => t.word === 'WHERE');
+}
+
+/** True for UPDATE / DELETE (also after WITH ...) that have no top-level WHERE clause. */
+export function lacksWhere(sql) {
+  return lacksWhereIn(tokens(sql, true));
 }

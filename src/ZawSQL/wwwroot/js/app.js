@@ -25,7 +25,7 @@ import { sortGroups } from './multirunlogic.js';
 import { sessionManager, confirmHostKey, exportDumpDialog, runSqlFile, createDatabaseDialog, preferencesDialog, aboutDialog } from './views/tools.js';
 
 const TYPE_LABEL = { table: 'Table', view: 'View', procedure: 'Procedure', function: 'Function', trigger: 'Trigger', event: 'Event' };
-const DEFAULT_PREFS = { rowsPerPage: 1000, maxResultRows: 10000, theme: 'system', uiZoom: 100, editorFontSize: 13, autoCloseBrackets: true, queryStats: false, confirmNoWhere: true, formatKeywordCase: 'upper', formatIndent: '2', checkUpdates: true, showWhatsNew: true, txDefault: 'auto', logTimestamps: true, slowLogMs: DEFAULT_SLOW_MS };
+const DEFAULT_PREFS = { rowsPerPage: 1000, maxResultRows: 10000, theme: 'system', uiZoom: 100, editorFontSize: 13, autoCloseBrackets: true, queryStats: false, confirmNoWhere: true, formatKeywordCase: 'upper', formatIndent: '2', checkUpdates: true, showWhatsNew: true, txDefault: 'auto', logTimestamps: true, slowLogMs: DEFAULT_SLOW_MS, claudePath: '', claudeModel: '' };
 
 // ---------------------------------------------------------------- tabs
 
@@ -360,6 +360,7 @@ class App {
         '-',
         { label: 'Query history…', icon: 'history', onClick: () => this.queryForRun()?.showHistory() },
         { label: 'Explain current statement', icon: 'explain', shortcut: 'Ctrl+Shift+E', disabled: !s.sid, onClick: () => this.queryForRun()?.explain() },
+        { label: 'Ask Claude to write SQL…', icon: 'sparkle', shortcut: 'Ctrl+K', disabled: !s.sid, onClick: () => this.queryForRun()?.askClaude() },
         { label: 'Format SQL', icon: 'format', shortcut: 'Ctrl+Shift+F', onClick: () => { const v = this.queryForRun(); if (v) this.formatEditor(v.editor); } },
         { label: 'Measure statement statistics', title: 'After each run, show the rows each statement read (by index or by scan), wrote and sorted, and its temporary tables', checked: !!this.prefs.queryStats, onClick: () => { this.prefs.queryStats = !this.prefs.queryStats; this.saveStateSoon(); } },
         '-',
@@ -458,7 +459,7 @@ class App {
       ['Ctrl+Shift+F9 / Ctrl+Enter', 'Execute statement at the caret'], ['Ctrl+Space', 'Autocomplete'], ['Ctrl+Shift+Space', 'Parameter hint for the call at the caret'], ['Ctrl+/', 'Toggle line comment'],
       ['Ctrl+F / Ctrl+H', 'Find / replace in the SQL editor (Alt+C case, Alt+W word, Alt+R regex)'], ['F3 / Shift+F3', 'Next / previous match'], ['Ctrl+G', 'Go to line (line or line:column)'],
       ['Tab / Shift+Tab', 'Indent / outdent'], ['Tab after a trigger', 'Expand snippet (then Tab: next field)'],
-      ['Ctrl+Shift+E', 'Visual EXPLAIN of the statement at the cursor'], ['Ctrl+Shift+F', 'Format SQL (selection or all)'], ['Ctrl+S', 'Save query to library'], ['Ctrl+Shift+S', 'Save query to library as new'], ['Ctrl+T', 'New query tab'], ['F2 / Enter / typing', 'Edit grid cell'],
+      ['Ctrl+Shift+E', 'Visual EXPLAIN of the statement at the cursor'], ['Ctrl+Shift+F', 'Format SQL (selection or all)'], ['Ctrl+K', 'Ask Claude to write SQL'], ['Ctrl+S', 'Save query to library'], ['Ctrl+Shift+S', 'Save query to library as new'], ['Ctrl+T', 'New query tab'], ['F2 / Enter / typing', 'Edit grid cell'],
       ['Ctrl+Enter', 'Apply multi-line cell edit'], ['Insert', 'Insert row'], ['Ctrl+Delete', 'Delete selected rows'],
       ['Ctrl+Shift+N', 'Set cell to NULL'], ['Esc', 'Cancel editing'], ['Ctrl+C', 'Copy selected cells'],
       ['Ctrl+= / Ctrl+- / Ctrl+0', 'Zoom in / out / actual size (also Ctrl+wheel)'],

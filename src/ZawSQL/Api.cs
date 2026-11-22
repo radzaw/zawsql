@@ -185,6 +185,8 @@ public static class Api
             return new { version = c.ServerVersion, ssh = tunnel != null };
         }));
 
+        api.MapGet("/claude/status", (string? path, CancellationToken ct) => Run(async _ => await ClaudeCli.StatusAsync(path, ct)));
+
         // ---- per connected session ----
         var s = api.MapGroup("/s/{sid}");
 
@@ -435,6 +437,25 @@ public static class Api
                 await c.ChangeDatabaseAsync(req.Database, ct);
             }
             return await Explainer.ExplainAsync(c, log, req.Sql, req.Analyze, ct);
+        }));
+
+        // Claude Code writes SQL from a description; the schema is read on a metadata connection (not logged).
+        s.MapPost("/claude/sql", (string sid, ClaudeSqlRequest req, ConnectionManager cm, CancellationToken ct) => Run(async log =>
+        {
+            if (string.IsNullOrWhiteSpace(req.Prompt)) throw new ApiException("Describe the query you want first.");
+            var ses = cm.Get(sid);
+            string? schema = null;
+            var tables = 0;
+            string version;
+            // The connection goes back to the pool before Claude starts thinking, which can take a minute.
+            await using (var c = await cm.OpenMetaAsync(ses, ct))
+            {
+                version = c.ServerVersion;
+                if (req.Schema && !string.IsNullOrEmpty(req.Database)) (schema, tables) = await ClaudeCli.SchemaAsync(c, req.Database, ct);
+            }
+            var prompt = ClaudeCli.BuildPrompt(req.Prompt, version, req.Database, schema, req.Sql, ses.Profile.ReadOnly);
+            log.Add($"/* Asking Claude Code for SQL{(schema != null ? $" with the schema of {req.Database} ({tables} table{(tables == 1 ? "" : "s")})" : "")}{(string.IsNullOrWhiteSpace(req.Sql) ? "" : " and the editor's SQL")} */");
+            return await ClaudeCli.AskAsync(req, prompt, ct);
         }));
 
         s.MapPost("/cancel", (string sid, string? tab, ConnectionManager cm) => RunSync(() =>

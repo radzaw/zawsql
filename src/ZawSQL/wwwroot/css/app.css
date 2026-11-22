@@ -1175,3 +1175,9 @@ select.cell-inp { padding: 0 4px; }
 .mr-chip:has(.mr-group.on) { background: var(--sel); border-color: var(--sel-border); }
 .mr-group.on { font-weight: 600; }
 .mr-save-group { margin-left: auto; }
+
+/* Ask Claude */
+.claude-dlg { display: flex; flex-direction: column; gap: 8px; }
+.claude-dlg textarea { min-height: 90px; }
+.claude-status { min-height: 18px; font-size: 12px; white-space: pre-wrap; user-select: text; }
+.claude-status.err { color: var(--err); }

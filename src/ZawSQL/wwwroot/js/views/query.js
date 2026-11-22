@@ -14,6 +14,7 @@ import { exportGridDialog } from './tools.js';
 import { attachLibraryPanel, editQueryDialog } from './library.js';
 import { findSnippet } from '../library.js';
 import { ExplainView } from './explain.js';
+import { askClaudeDialog } from './claude.js';
 import { pickServers, groupTargets, confirmMultiRun } from './multirun.js';
 import { combineResults, summarySet, serverStatus, runSummary, sortGroups } from '../multirunlogic.js';
 import { statsSet, statsLine, returnedRows } from '../querystats.js';
@@ -72,6 +73,7 @@ export class QueryView {
       (this.libBtn = btn('library', '', 'Saved queries and snippets', () => app.toggleLibrary())),
       btn('format', '', 'Format SQL – the selection, or everything (Ctrl+Shift+F)', () => app.formatEditor(this.editor)),
       btn('explain', 'Explain', 'Visual EXPLAIN of the statement at the cursor (Ctrl+Shift+E)', () => this.explain()),
+      btn('sparkle', 'Ask Claude', 'Describe a query and let Claude Code write the SQL (Ctrl+K)', () => this.askClaude()),
       h('span', { class: 'sep' }), this.txBtn, this.commitBtn, this.rollbackBtn, this.txInfo,
       h('div', { class: 'grow' }), this.dbLabel);
 
@@ -131,6 +133,9 @@ export class QueryView {
       } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
         e.preventDefault();
         this.explain();
+      } else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        this.askClaude();
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's' && !e.altKey) {
         e.preventDefault();
         e.stopPropagation();
@@ -343,6 +348,9 @@ export class QueryView {
       this.app.showError(e);
     }
   }
+
+  /** Claude Code writes SQL from a description, into the editor. */
+  askClaude() { return askClaudeDialog(this.app, this); }
 
   get sql() { return this.editor.value; }
 

@@ -40,6 +40,13 @@ test('isReadOnlyStatement separates reads from changes', () => {
     assert.equal(isReadOnlyStatement(s), false, s);
 });
 
+test('isReadOnlyStatement: hidden changes count as changes (NO_BACKSLASH_ESCAPES, MariaDB /*M! */)', () => {
+  for (const s of [String.raw`SELECT '\'; DELETE FROM t; -- '`, String.raw`SELECT '\'; SET GLOBAL max_connections = 1; -- '`, "SELECT 1 /*M! INTO OUTFILE '/tmp/x' */", 'SELECT 1; DROP TABLE t'])
+    assert.equal(isReadOnlyStatement(s), false, s);
+  for (const s of [String.raw`SELECT 'it\'s'`, String.raw`SELECT 'C:\dir\' AS p`, 'SELECT 1;', 'SELECT 1 /* M! */'])
+    assert.equal(isReadOnlyStatement(s), true, s);
+});
+
 test('highlightSql marks keywords, strings, numbers, comments and escapes HTML', () => {
   const html = highlightSql("SELECT COUNT(id), 'a<b', 42 FROM `t` -- note");
   assert.match(html, /<span class="t-kw">SELECT<\/span>/);

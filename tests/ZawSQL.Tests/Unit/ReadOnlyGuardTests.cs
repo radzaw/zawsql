@@ -59,4 +59,27 @@ public class ReadOnlyGuardTests
     // The data grid's filter: closing the parenthesis to append a statement.
     [InlineData("SELECT * FROM t WHERE (1); DELETE FROM t; SELECT (1\n)", true)]
     public void Finds_a_second_statement(string sql, bool several) => Assert.Equal(several, ReadOnlyGuard.HasSeveralStatements(sql));
+
+    // Under NO_BACKSLASH_ESCAPES '\' is a whole string, so what follows it is SQL; MariaDB runs /*M! … */ like /*! … */.
+    [Theory]
+    [InlineData(@"SELECT '\'; SET GLOBAL max_connections = 1; -- '")]
+    [InlineData(@"SELECT * FROM t WHERE ('\'); DELETE FROM t; -- '" + "\n)")]
+    [InlineData(@"SELECT ""\""; PURGE BINARY LOGS BEFORE NOW(); -- """)]
+    [InlineData("SELECT 1 /*M! INTO OUTFILE '/tmp/x' */")]
+    [InlineData("SELECT 1 /*M!100500 , (SELECT 1) */")]
+    [InlineData("SELECT 1 /*m! INTO DUMPFILE '/tmp/x' */")]
+    public void Blocks_statements_hidden_from_one_reading(string sql) => Assert.NotNull(ReadOnlyGuard.Check(sql));
+
+    [Theory]
+    [InlineData(@"SELECT 'it\'s' AS a")] // escaped quote: the other reading sees a word and an open string, nothing to run
+    [InlineData(@"SELECT 'C:\path\' AS p")] // NO_BACKSLASH_ESCAPES style
+    [InlineData("SELECT 1 /* M! not executable */")]
+    [InlineData("SELECT 1 /*+ MAX_EXECUTION_TIME(1000) */")]
+    public void Still_allows_backslashes_and_plain_comments(string sql) => Assert.Null(ReadOnlyGuard.Check(sql));
+
+    [Theory]
+    [InlineData(@"SELECT '\'; DROP TABLE t; -- '", true)]
+    [InlineData("SELECT 1 /*M!; DROP TABLE t */", true)]
+    [InlineData(@"SELECT 'it\'s'", false)]
+    public void A_second_statement_under_either_reading(string sql, bool several) => Assert.Equal(several, ReadOnlyGuard.HasSeveralStatements(sql));
 }
