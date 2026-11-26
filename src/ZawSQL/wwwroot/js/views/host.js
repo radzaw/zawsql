@@ -13,6 +13,7 @@ import { HealthView } from './health.js';
 import { EventsView } from './events.js';
 import { ErrorLogView } from './errorlog.js';
 import { InnodbView } from './innodb.js';
+import { FragmentationView } from './fragmentation.js';
 
 const KINDS = [
   ['databases', 'Databases'],
@@ -24,6 +25,7 @@ const KINDS = [
   ['monitor', 'Monitor'],
   ['insight', 'Performance'],
   ['innodb', 'InnoDB'],
+  ['fragmentation', 'Fragmentation'],
   ['replication', 'Replication'],
   ['binlog', 'Binary log'],
   ['health', 'Health'],
@@ -75,9 +77,11 @@ export class HostView {
     this.errorlog.el.style.display = 'none';
     this.innodb = new InnodbView(app);
     this.innodb.el.style.display = 'none';
+    this.fragmentation = new FragmentationView(app);
+    this.fragmentation.el.style.display = 'none';
     // Kinds shown by their own panel (with their own controls) instead of the grid.
-    this.panels = { events: this.events, errorlog: this.errorlog, monitor: this.monitor, insight: this.insight, innodb: this.innodb, replication: this.replication, binlog: this.binlog, health: this.health };
-    this.el = h('div', { class: 'view host-view' }, toolbar, this.grid.el, this.events.el, this.errorlog.el, this.monitor.el, this.insight.el, this.innodb.el, this.replication.el, this.binlog.el, this.health.el);
+    this.panels = { events: this.events, errorlog: this.errorlog, monitor: this.monitor, insight: this.insight, innodb: this.innodb, fragmentation: this.fragmentation, replication: this.replication, binlog: this.binlog, health: this.health };
+    this.el = h('div', { class: 'view host-view' }, toolbar, this.grid.el, this.events.el, this.errorlog.el, this.monitor.el, this.insight.el, this.innodb.el, this.fragmentation.el, this.replication.el, this.binlog.el, this.health.el);
   }
 
   onShow() {
@@ -115,6 +119,7 @@ export class HostView {
     if (this.kind === 'events') return this.events.load();
     if (this.kind === 'errorlog') return this.errorlog.load();
     if (this.kind === 'innodb') return this.innodb.load();
+    if (this.kind === 'fragmentation') return this.fragmentation.load(false);
     return this.load();
   }
 

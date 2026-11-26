@@ -538,6 +538,10 @@ public static class Api
         s.MapGet("/health", (string sid, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, _, _) =>
             await HealthReport.CollectAsync(c, ct)));
 
+        // ---- Host tab › Fragmentation (read-only, not logged; fresh bypasses MySQL 8's statistics cache) ----
+        s.MapGet("/fragmentation", (string sid, bool? fresh, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, _, _) =>
+            await Fragmentation.CollectAsync(c, fresh == true, ct)));
+
         // ---- table maintenance ----
         s.MapPost("/maintenance", (string sid, MaintenanceRequest req, ConnectionManager cm, CancellationToken ct) => Run(async log =>
         {
