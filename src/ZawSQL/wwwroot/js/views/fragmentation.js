@@ -74,8 +74,24 @@ export class FragmentationView {
     if (sid === this.sid && (this.data || this.loading)) return;
     this.sid = sid;
     this.data = null;
+    this.loading = false; // a load still running for the previous session no longer counts
     this.results.clear();
+    this.clear();
     this.load(false);
+  }
+
+  /** Empties the panel so the previous session's tables don't show while the new list loads. */
+  clear() {
+    this.rows = [];
+    this.gridRows = [];
+    this.caption.textContent = '';
+    this.caption.title = '';
+    this.tiles.replaceChildren();
+    this.notice.replaceChildren();
+    this.schema.replaceChildren(h('option', { value: '' }, 'All databases'));
+    this.grid.o.emptyText = 'Loading…';
+    this.grid.setData(COLS, [], { keepWidths: true });
+    this.update();
   }
 
   /** A run goes on while the panel is hidden (Stop ends it); switching to another session ends it after the current table. */
@@ -97,6 +113,10 @@ export class FragmentationView {
     } catch (e) {
       if (sid !== this.sid) return;
       this.status.textContent = e.message;
+      if (!this.data) {
+        this.grid.o.emptyText = 'Could not read the tables.';
+        this.grid.setData(COLS, [], { keepWidths: true });
+      }
       this.app.showError(e);
     } finally {
       if (sid === this.sid) this.loading = false;
