@@ -8,6 +8,9 @@ import { exportGridDialog, rowsToSql } from './tools.js';
 import { RowEditor } from './editing.js';
 import { whereKey, rememberWhere, forgetWhere, whereLabel } from '../wherehistory.js';
 import { rememberView, viewFor, withExistingSort } from '../dataviewstate.js';
+import { rowLinks, linkColumns, tableLabel } from '../fklogic.js';
+
+const BACK_LIMIT = 50;
 
 export class DataView {
   constructor(app) {
@@ -20,9 +23,15 @@ export class DataView {
     this.where = '';
     this.searched = null; // the quick search behind the current filter: { q, where }
     this.showAll = false;
+    this.rel = null; // the table's foreign keys and those pointing at it (/relations)
+    this.relKey = null;
+    this.backStack = []; // tables left by following a foreign key: { sid, db, table }
+    this.pending = null; // the filter to open the next table with: { key, where }
 
     this.info = h('span', { class: 'data-info' });
     const btn = (ic, label, title, fn) => h('button', { class: 'tbtn', title, html: icon(ic) + (label ? `<span>${label}</span>` : ''), onclick: fn });
+    this.backBtn = btn('back', 'Back', 'Back to the table you came from (Alt+←)', () => this.back());
+    this.backBtn.style.display = 'none';
     this.nextBtn = btn('next', 'Next', 'Load next rows', () => this.load(true));
     this.allBtn = btn('all', 'Show all', 'Load all rows', () => { this.showAll = true; this.load(); });
     this.search = h('input', { class: 'inp filter-inp', placeholder: 'Quick search (Enter)', title: 'Searches all columns with LIKE' });
@@ -33,7 +42,7 @@ export class DataView {
       btn('check', '', 'Post row', () => this.editor.postCurrent()),
       btn('cancel', '', 'Cancel editing', () => this.editor.cancelRow()),
     ];
-    const toolbar = h('div', { class: 'viewbar' }, this.info, h('div', { class: 'grow' }),
+    const toolbar = h('div', { class: 'viewbar' }, this.backBtn, this.info, h('div', { class: 'grow' }),
       this.nextBtn, this.allBtn, h('span', { class: 'sep' }),
       ...this.editBtns,
       h('span', { class: 'sep' }),
@@ -62,7 +71,11 @@ export class DataView {
       onSort: c => this.toggleSort(c),
       onContextMenu: (e, p) => this.ctx(e, p),
       onRowChange: prev => this.editor.rowLeft(prev),
-      onKey: e => this.editor.handleKey(e),
+      onKey: e => {
+        if (e.altKey && e.key === 'ArrowLeft' && this.backStack.length) { e.preventDefault(); this.back(); return; }
+        this.editor.handleKey(e);
+      },
+      onLinkClick: (r, c) => this.followCell(r, c),
       arrange: true,
       onLayout: l => { this.colLayout = l; this.rememberView(); },
     });
@@ -98,11 +111,114 @@ export class DataView {
       this.whereInput.value = v.where;
       this.search.value = v.search;
       this.searched = v.search && v.where ? { q: v.search, where: v.where } : null;
-      if (v.where) this.filterBox.style.display = '';
+      // Opened by following a foreign key: its filter instead of the remembered one. Opened any other way: Back is forgotten.
+      const p = this.pending;
+      this.pending = null;
+      if (p && p.key.toLowerCase() === k.toLowerCase()) {
+        this.where = p.where;
+        this.whereInput.value = p.where;
+        this.search.value = '';
+        this.searched = null;
+      } else if (!p?.back) this.backStack = [];
+      this.updateBack();
+      if (this.where) this.filterBox.style.display = '';
       this.cols = [];
       this.meta = null;
       this.load();
+      this.loadRelations();
     }
+  }
+
+  // ---------- following foreign keys ----------
+
+  async loadRelations() {
+    const t = this.target, key = this.key;
+    if (this.relKey === key) return;
+    this.rel = null;
+    this.relKey = key;
+    try {
+      const rel = await get(`/s/${t.sid}/relations`, { db: t.db, table: t.table }, { quiet: true });
+      if (key !== this.key) return;
+      this.rel = rel;
+      this.markLinks();
+    } catch {
+      // Without them the grid simply has no links; the table itself still works.
+      if (key === this.key) this.relKey = null;
+    }
+  }
+
+  /** Marks the foreign key columns as links in the grid (once both the columns and the relations are known). */
+  markLinks() {
+    if (!this.rel || !this.cols.length) return;
+    const links = new Set([...linkColumns(this.rel)].map(n => n.toLowerCase()));
+    for (const c of this.cols) {
+      const fks = this.rel.outgoing.filter(fk => fk.columns.some(n => n.toLowerCase() === c.name.toLowerCase()));
+      c.link = links.has(c.name.toLowerCase());
+      if (c.link && !c.title.includes('\n→')) c.title += fks.map(fk => `\n→ ${tableLabel({ db: fk.refDb, label: `${fk.refTable} (${fk.refColumns.join(', ')})` }, this.target.db)}`).join('') + '\nCtrl+click a value to open the row it references';
+    }
+    this.grid.renderHeader();
+    this.grid.render();
+  }
+
+  linksAt(r, c) {
+    const row = this.rows[r];
+    if (!this.rel || !row || row.$new) return null;
+    return rowLinks(this.rel, this.cols, row, this.cols[c]?.name);
+  }
+
+  /** Ctrl+click on a foreign key value: the referenced row (the first key containing that column). */
+  followCell(r, c) {
+    const l = this.linksAt(r, c)?.outgoing.find(x => x.has && x.where);
+    if (l) this.follow(l);
+  }
+
+  async follow(link) {
+    const t = this.target;
+    if (!t || !link.where) return;
+    const from = { sid: t.sid, db: t.db, table: t.table };
+    // A key pointing at its own table (parent_id → id): same tab, just the filter.
+    if (link.db.toLowerCase() === t.db.toLowerCase() && link.table.toLowerCase() === t.table.toLowerCase()) {
+      this.pushBack(from);
+      this.updateBack();
+      this.setFilter(link.where, { record: false });
+      return;
+    }
+    this.pending = { key: `${t.sid}|${link.db}|${link.table}`, where: link.where };
+    const prevStack = this.backStack;
+    this.pushBack(from);
+    if (!(await this.app.selectObject(t.sid, link.db, link.table, 'table', { tab: 'data' }))) {
+      this.pending = null;
+      this.backStack = prevStack;
+      this.app.showError(new Error(`${link.db}.${link.table} isn't in the object tree (check the session's database filter).`));
+    }
+  }
+
+  pushBack(from) {
+    this.backStack = [...this.backStack, from].slice(-BACK_LIMIT);
+  }
+
+  async back() {
+    const prev = this.backStack.at(-1);
+    if (!prev) return;
+    this.backStack = this.backStack.slice(0, -1);
+    const t = this.target;
+    if (t && prev.sid === t.sid && prev.db === t.db && prev.table === t.table) {
+      // Back within a self-referencing table: the filter it had before isn't known, so show the table unfiltered.
+      this.updateBack();
+      this.setFilter('', { record: false });
+      return;
+    }
+    this.pending = { back: true, key: '' };
+    if (!(await this.app.selectObject(prev.sid, prev.db, prev.table, 'table', { tab: 'data' }))) {
+      this.pending = null;
+      this.updateBack();
+    }
+  }
+
+  updateBack() {
+    const prev = this.backStack.at(-1);
+    this.backBtn.style.display = prev ? '' : 'none';
+    if (prev) this.backBtn.title = `Back to ${prev.table} (Alt+←)`;
   }
 
   refresh() { return this.target && this.load(); }
@@ -138,6 +254,7 @@ export class DataView {
       const sc = this.sort ? this.cols.findIndex(c => c.name === this.sort.col) : -1;
       this.grid.sort = sc >= 0 ? { c: sc, dir: this.sort.dir } : null;
       this.grid.setData(this.cols, this.rows, { keepWidths: sameCols, keepPos: append, layout: this.colLayout });
+      this.markLinks();
       this.updateInfo();
       // Only views that loaded are remembered, so a broken filter isn't brought back next time.
       if (!append) this.rememberView();
@@ -254,6 +371,14 @@ export class DataView {
       '-',
       ...this.editor.menuItems(p),
     ];
+    const links = p.r >= 0 ? this.linksAt(p.r, p.c) : null;
+    if (links && (links.outgoing.length || links.incoming.length)) {
+      const db = this.target.db;
+      const entry = l => ({ label: tableLabel(l, db), title: l.where ?? 'The key is NULL in this row', disabled: !l.where, onClick: () => this.follow(l) });
+      const go = links.outgoing.map(l => ({ ...entry(l), label: `Go to ${tableLabel(l, db)}`, icon: 'fk', shortcut: l === links.outgoing.find(x => x.has) ? 'Ctrl+click' : undefined }));
+      items.push('-', ...go);
+      if (links.incoming.length) items.push({ label: 'Rows referencing this row', icon: 'fk', submenu: links.incoming.map(entry) });
+    }
     if (col && v !== undefined) {
       const name = qi(col.name);
       const lit = v == null ? null : isNumericKind(col.kind) ? v : sqlStr(v);

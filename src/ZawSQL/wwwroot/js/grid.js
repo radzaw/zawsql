@@ -74,6 +74,11 @@ export class Grid {
     this.body.addEventListener('mousedown', e => this.onMouseDown(e));
     // Full text of a cell that doesn't fit, after the pointer rests on it.
     this.body.addEventListener('mousemove', e => this.onHover(e));
+    // Link cells (columns with `link`) look clickable while Ctrl is held.
+    const ctrlLook = e => this.el.classList.toggle('ctrl-down', e.ctrlKey || e.metaKey);
+    this.body.addEventListener('mousemove', ctrlLook);
+    this.body.addEventListener('keydown', ctrlLook);
+    this.body.addEventListener('keyup', ctrlLook);
     this.body.addEventListener('mouseleave', () => this.hidePreview());
     this.body.addEventListener('keydown', () => this.hidePreview(), true);
     this.body.addEventListener('wheel', () => this.hidePreview(), { passive: true });
@@ -266,7 +271,7 @@ export class Grid {
     for (const i of this.order) {
       const c = this.columns[i];
       const s = this.sort && this.sort.c === i ? (this.sort.dir === 'desc' ? '▼' : '▲') : '';
-      const key = c.key ? icon(c.key === 'pri' ? 'key' : c.key === 'uni' ? 'keyu' : 'keyi', 'gh-key') : '';
+      const key = c.key ? icon(c.key === 'pri' ? 'key' : c.key === 'uni' ? 'keyu' : 'keyi', 'gh-key') : c.link ? icon('fk', 'gh-key') : '';
       parts.push(`<div class="gh${isNumericKind(c.kind) ? ' num' : ''}" data-c="${i}" style="width:${this.widths[i]}px" title="${esc(c.title || c.type || c.name)}">${key}<span class="gh-t">${esc(c.name)}</span><span class="gh-s">${s}</span><div class="gh-rz" data-rz="${i}"></div></div>`);
     }
     this.headerInner.innerHTML = parts.join('');
@@ -331,7 +336,10 @@ export class Grid {
         let txt;
         if (row.$new && row.$set && !row.$set.has(c)) { txt = '(default)'; ccls += ' null'; }
         else if (v == null) { txt = '(NULL)'; ccls += ' null'; }
-        else txt = esc(this.cellText(v, col));
+        else {
+          txt = esc(this.cellText(v, col));
+          if (col.link && !row.$new) ccls += ' link';
+        }
         if (multi && r >= sel.r1 && r <= sel.r2 && p >= sel.c1 && p <= sel.c2) ccls += ' sel';
         if (r === this.cur.r && c === this.cur.c) ccls += ' focus';
         if (row.$changed?.has(c)) ccls += ' changed';
@@ -462,6 +470,13 @@ export class Grid {
     const isDouble = !e.shiftKey && last && now - last.t < 500 && last.r === p.r && last.c === p.c;
     this.lastDown = isDouble ? null : { t: now, r: p.r, c: p.c };
     this.setCur(p.r, p.c, e.shiftKey);
+    // Ctrl+click on a link cell (e.g. a foreign key value): the owner follows it.
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && this.o.onLinkClick && this.columns[p.c]?.link && this.rows[p.r]?.[p.c] != null && !this.rows[p.r].$new) {
+      e.preventDefault();
+      this.lastDown = null;
+      this.o.onLinkClick(p.r, p.c);
+      return;
+    }
     if (isDouble) {
       e.preventDefault();
       this.activate(p);

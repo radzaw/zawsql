@@ -663,17 +663,19 @@ class App {
     } else this.tree.select(node);
   }
 
+  /** Selects the object in the tree (optionally opening a tab); false when it isn't there (e.g. hidden by the database filter). */
   async selectObject(sid, db, name, type, { tab } = {}) {
     const s = this.tree.sessionNode(sid);
-    if (!s) return;
+    if (!s) return false;
     await this.tree.expand(s);
     const dbNode = this.tree.findDb(sid, db);
-    if (!dbNode) return;
+    if (!dbNode) return false;
     await this.tree.expand(dbNode);
     const node = this.tree.findObj(sid, db, name, type);
-    if (!node) return;
+    if (!node) return false;
     this.tree.select(node);
     if (tab) setTimeout(() => this.tabs.activate(tab), 130);
+    return true;
   }
 
   async refreshDb(sid, db) {

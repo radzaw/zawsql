@@ -235,6 +235,13 @@ public static class Api
             return new { columns = m.Columns, indexes = m.Indexes, foreignKeys = fks, partitions, create, options, isView = m.IsView, keyColumns = m.KeyColumns };
         }));
 
+        // Data tab: the table's foreign keys and those pointing at it, to follow from a row to related rows. Not logged.
+        s.MapGet("/relations", (string sid, string db, string table, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, _, _) => new
+        {
+            outgoing = await TableMeta.LoadForeignKeysAsync(c, null, db, table, ct),
+            incoming = await TableMeta.LoadReferencingKeysAsync(c, null, db, table, ct),
+        }));
+
         s.MapGet("/columns", (string sid, string db, string table, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, _, _) =>
             (await Db.RowsAsync(c, null, $"SHOW COLUMNS FROM {Db.Q(db, table)}", ct)).Select(r => new { name = r["Field"], type = r["Type"] }).ToList()));
 

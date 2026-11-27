@@ -61,6 +61,28 @@ public class BrowseTests(TestDatabase t)
     }
 
     [DbFact]
+    public async Task Relations_list_a_tables_foreign_keys_and_those_pointing_at_it()
+    {
+        var res = await t.App.GetAsync($"/s/{t.Sid}/relations?db={t.Db}&table=orders");
+        Assert.Empty(res.Log); // asked on every Data tab open: not logged
+        var o = res.Expect();
+        var fk = Assert.Single(o.GetProperty("outgoing").EnumerateArray());
+        Assert.Equal("customers", fk.GetProperty("refTable").GetString());
+        Assert.Equal(t.Db, fk.GetProperty("refDb").GetString());
+        Assert.Equal(["customer_id"], fk.GetProperty("columns").EnumerateArray().Select(x => x.GetString()));
+        Assert.Equal(["id"], fk.GetProperty("refColumns").EnumerateArray().Select(x => x.GetString()));
+        Assert.Empty(o.GetProperty("incoming").EnumerateArray());
+
+        var c = (await t.App.GetAsync($"/s/{t.Sid}/relations?db={t.Db}&table=customers")).Expect();
+        Assert.Empty(c.GetProperty("outgoing").EnumerateArray());
+        var inc = Assert.Single(c.GetProperty("incoming").EnumerateArray());
+        Assert.Equal("orders", inc.GetProperty("table").GetString());
+        Assert.Equal(t.Db, inc.GetProperty("db").GetString());
+        Assert.Equal(["customer_id"], inc.GetProperty("columns").EnumerateArray().Select(x => x.GetString()));
+        Assert.Equal(["id"], inc.GetProperty("refColumns").EnumerateArray().Select(x => x.GetString()));
+    }
+
+    [DbFact]
     public async Task Data_values_are_formatted_for_display()
     {
         var d = (await t.App.GetAsync($"/s/{t.Sid}/data?db={t.Db}&table=customers&limit=1000&order=id")).Expect();

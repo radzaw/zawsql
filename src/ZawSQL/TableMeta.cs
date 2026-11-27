@@ -40,6 +40,16 @@ public sealed class ForeignKeyMeta
     public string? OnDelete { get; set; }
 }
 
+/// <summary>A foreign key of another table pointing at the one asked about: Columns in Db.Table reference RefColumns here.</summary>
+public sealed class ReferencingKeyMeta
+{
+    public string Name { get; set; } = "";
+    public string Db { get; set; } = "";
+    public string Table { get; set; } = "";
+    public List<string> Columns { get; set; } = [];
+    public List<string> RefColumns { get; set; } = [];
+}
+
 public sealed class PartitionMeta
 {
     public string Name { get; set; } = "";
@@ -161,6 +171,31 @@ public static class TableMeta
             if (fk == null)
             {
                 fk = new ForeignKeyMeta { Name = name, RefDb = r["refDb"] ?? db, RefTable = r["refTable"] ?? "", OnUpdate = r["onUpdate"], OnDelete = r["onDelete"] };
+                list.Add(fk);
+            }
+            fk.Columns.Add(r["col"] ?? "");
+            fk.RefColumns.Add(r["refCol"] ?? "");
+        }
+        return list;
+    }
+
+    /// <summary>Foreign keys of other tables (in any database, and this table itself) that point at this table.</summary>
+    public static async Task<List<ReferencingKeyMeta>> LoadReferencingKeysAsync(MySqlConnection c, SqlLog? log, string db, string table, CancellationToken ct)
+    {
+        var list = new List<ReferencingKeyMeta>();
+        var rows = await Db.RowsAsync(c, log, """
+            SELECT CONSTRAINT_NAME AS name, TABLE_SCHEMA AS db, TABLE_NAME AS tbl, COLUMN_NAME AS col, REFERENCED_COLUMN_NAME AS refCol
+            FROM information_schema.KEY_COLUMN_USAGE
+            WHERE REFERENCED_TABLE_SCHEMA = @p0 AND REFERENCED_TABLE_NAME = @p1
+            ORDER BY TABLE_SCHEMA, TABLE_NAME, CONSTRAINT_NAME, ORDINAL_POSITION
+            """, ct, db, table);
+        foreach (var r in rows)
+        {
+            string name = r["name"] ?? "", d = r["db"] ?? db, tb = r["tbl"] ?? "";
+            var fk = list.FirstOrDefault(f => f.Name == name && f.Db == d && f.Table == tb);
+            if (fk == null)
+            {
+                fk = new ReferencingKeyMeta { Name = name, Db = d, Table = tb };
                 list.Add(fk);
             }
             fk.Columns.Add(r["col"] ?? "");

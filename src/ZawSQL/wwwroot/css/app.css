@@ -421,6 +421,11 @@ body.dragging-col, body.dragging-col * { cursor: grabbing !important; user-selec
 .gc.k-spatial { color: var(--k-spatial); }
 .gc.k-text { color: var(--k-text); }
 .gc.null { color: var(--null); font-style: italic; }
+/* Foreign key values (Ctrl+click opens the referenced row): a dotted underline, a pointer while Ctrl is held. */
+.gc.link { text-decoration: underline dotted color-mix(in srgb, currentColor 45%, transparent); text-underline-offset: 2px; }
+.grid.ctrl-down .gc.link:hover { cursor: pointer; text-decoration: underline solid; color: var(--accent); }
+.ic-fk { color: #8b5cf6; }
+:root[data-theme="dark"] .ic-fk { color: #b69cff; }
 .gc.changed { background: var(--changed); }
 .gc.sel { background: var(--accent-soft); }
 .grid-body:focus .gc.focus, .gc.focus { background: var(--accent); color: var(--accent-ink); }

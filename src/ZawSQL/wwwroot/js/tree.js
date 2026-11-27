@@ -37,9 +37,15 @@ export class Tree {
   }
 
   sessionNode(sid) { return this.roots.find(n => n.sid === sid); }
-  findDb(sid, db) { return this.sessionNode(sid)?.children?.find(d => d.db === db) || null; }
+  // An exact match first, then one ignoring case: information_schema can report names in another case than SHOW
+  // (lower_case_table_names = 2), e.g. the table a foreign key references.
+  findDb(sid, db) {
+    const list = this.sessionNode(sid)?.children;
+    return list?.find(d => d.db === db) || list?.find(d => d.db?.toLowerCase() === db?.toLowerCase()) || null;
+  }
   findObj(sid, db, name, type) {
-    return this.findDb(sid, db)?.children?.find(o => o.name === name && (!type || o.type === type)) || null;
+    const list = this.findDb(sid, db)?.children?.filter(o => !type || o.type === type);
+    return list?.find(o => o.name === name) || list?.find(o => o.name.toLowerCase() === name?.toLowerCase()) || null;
   }
 
   async load(node) {
