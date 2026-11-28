@@ -13,6 +13,17 @@ namespace ZawSQL;
 /// </summary>
 public sealed record ClaudeSqlRequest(string Prompt, string? Database, string? Sql = null, bool Schema = true, string? Model = null, string? ClaudePath = null);
 
+public sealed record ClaudeTableRef(string? Db, string Table);
+
+/// <summary>
+/// "Ask Claude to explain": Kind is "error" (Sql failed with Error / ErrorCode) or "plan" (Sql's EXPLAIN FORMAT=JSON in
+/// PlanJson, EXPLAIN ANALYZE text in AnalyzeTree, ZawSQL's own Findings). Tables: the plan's tables, whose CREATE TABLE
+/// is sent along. Schema: for an error, the table and column names of Database. Question: an optional follow-up.
+/// </summary>
+public sealed record ClaudeExplainRequest(string Kind, string Sql, string? Database, string? Error = null, string? ErrorCode = null,
+    string? PlanJson = null, string? AnalyzeTree = null, List<string>? Findings = null, List<ClaudeTableRef>? Tables = null,
+    bool Schema = true, string? Question = null, string? Model = null, string? ClaudePath = null);
+
 /// <summary>
 /// Writes SQL with the Claude Code command line (<c>claude -p</c>), so it runs on the user's own Claude subscription
 /// login rather than an API key. Only the request, the server version and, when asked, table and column names (never
@@ -143,6 +154,65 @@ public static partial class ClaudeCli
         return sb.ToString();
     }
 
+    /// <summary>Plans and table definitions beyond these sizes are cut off, so the prompt stays a reasonable size.</summary>
+    public const int MaxPlanChars = 40_000, MaxCreateChars = 8_000, MaxPlanTables = 12;
+
+    /// <summary>The prompt for explaining a failed statement or a query plan (see <see cref="ClaudeExplainRequest"/>).</summary>
+    public static string BuildExplainPrompt(ClaudeExplainRequest req, string serverVersion, string? schema, IReadOnlyList<(string Name, string Create)> creates, bool readOnly)
+    {
+        var mariaDb = serverVersion.Contains("MariaDB", StringComparison.OrdinalIgnoreCase);
+        var plan = req.Kind == "plan";
+        var sb = new StringBuilder();
+        sb.Append(plan
+            ? "You help a user of the ZawSQL database client understand the execution plan of a SQL statement. "
+            : "You help a user of the ZawSQL database client understand why a SQL statement failed. ");
+        sb.Append("Answer in plain text: short paragraphs and \"- \" bullet lists, no headings, no tables, no bold. ")
+          .Append("Be specific to this statement and schema rather than general, and keep it under about 250 words. ");
+        sb.Append(plan
+            ? "First describe in plain words how the server runs the statement, step by step. Then say what is slow or risky and why. " +
+              "Then give concrete improvements (indexes, rewrites, ANALYZE TABLE), the most effective first; say when the plan is already fine. " +
+              "If you suggest SQL (an index or a rewritten statement), put it in one ```sql code block at the very end, statements ending with a semicolon. "
+            : "First say in one or two sentences what the error means here, then the likely cause in this statement, then how to fix it. " +
+              "If a corrected statement helps, put the whole corrected statement in one ```sql code block at the very end, ending with a semicolon. ");
+        sb.Append("Do not use tools or read files: everything you need is in this message.\n\n");
+        sb.Append($"Server: {(mariaDb ? "MariaDB" : "MySQL")} {serverVersion}.\n");
+        if (readOnly) sb.Append("The session is read-only: the user can't change data or structure through it.\n");
+        if (!string.IsNullOrEmpty(req.Database)) sb.Append($"Current database: {req.Database}\n");
+        if (!string.IsNullOrWhiteSpace(schema))
+            sb.Append("\nSchema (table(column type …); PK = primary key, → = foreign key, NULL = nullable):\n").Append(schema.TrimEnd()).Append('\n');
+        foreach (var (name, create) in creates)
+            sb.Append($"\nDefinition of {name}:\n```sql\n").Append(Cut(create.TrimEnd(), MaxCreateChars)).Append("\n```\n");
+        sb.Append("\nThe statement:\n```sql\n").Append(req.Sql.Trim()).Append("\n```\n");
+        if (!plan)
+            sb.Append($"\nThe server answered: {(string.IsNullOrEmpty(req.ErrorCode) ? "" : $"error {req.ErrorCode}: ")}{req.Error?.Trim()}\n");
+        else
+        {
+            if (!string.IsNullOrWhiteSpace(req.PlanJson)) sb.Append("\nEXPLAIN FORMAT=JSON:\n```json\n").Append(Cut(req.PlanJson.Trim(), MaxPlanChars)).Append("\n```\n");
+            if (!string.IsNullOrWhiteSpace(req.AnalyzeTree)) sb.Append("\nEXPLAIN ANALYZE (it ran; actual rows and times):\n```\n").Append(Cut(req.AnalyzeTree.Trim(), MaxPlanChars)).Append("\n```\n");
+            if (req.Findings is { Count: > 0 } f) sb.Append("\nZawSQL's own checks flagged:\n").AppendJoin("", f.Take(20).Select(x => $"- {x}\n"));
+        }
+        if (!string.IsNullOrWhiteSpace(req.Question)) sb.Append("\nThe user also asks:\n").Append(req.Question.Trim()).Append('\n');
+        return sb.ToString();
+    }
+
+    static string Cut(string s, int max) => s.Length > max ? s[..max] + "\n… (cut off)" : s;
+
+    /// <summary>Only the contents of sql code blocks (a suggested fix or index), or null when the answer has none.</summary>
+    public static string? SuggestedSql(string answer)
+    {
+        var blocks = FenceRe().Matches(answer)
+            .Where(m => m.Groups[1].Value.Equals("sql", StringComparison.OrdinalIgnoreCase) || m.Groups[1].Value.Equals("mysql", StringComparison.OrdinalIgnoreCase))
+            .Select(m => m.Groups[2].Value.Trim()).Where(b => b.Length > 0).ToList();
+        return blocks.Count > 0 ? string.Join("\n\n", blocks) : null;
+    }
+
+    /// <summary>Asks Claude Code to explain; the answer is text, plus the SQL it suggests (if any) to put into the editor.</summary>
+    public static async Task<object> ExplainAsync(ClaudeExplainRequest req, string prompt, CancellationToken ct)
+    {
+        var (text, cost, ms) = await RunPromptAsync(req.Model, req.ClaudePath, prompt, ct);
+        return new { answer = text, sql = SuggestedSql(text), costUsd = cost, durationMs = ms };
+    }
+
     /// <summary>The SQL in Claude's answer: the contents of its code blocks (sql ones first), else the whole text.</summary>
     public static string ExtractSql(string answer)
     {
@@ -155,19 +225,31 @@ public static partial class ClaudeCli
     /// <summary>Asks Claude Code for SQL. Returns the SQL, the full answer and what it cost (as the CLI reports it).</summary>
     public static async Task<object> AskAsync(ClaudeSqlRequest req, string prompt, CancellationToken ct)
     {
-        if (req.Model is { Length: > 0 } m && !ModelRe().IsMatch(m)) throw new ApiException("The Claude model name isn't valid.");
-        var exe = Find(req.ClaudePath) ?? throw new ApiException(string.IsNullOrWhiteSpace(req.ClaudePath)
+        var (text, cost, ms) = await RunPromptAsync(req.Model, req.ClaudePath, prompt, ct);
+        return new { sql = ExtractSql(text), answer = text, costUsd = cost, durationMs = ms };
+    }
+
+    static async Task<(string Text, double? Cost, long? Ms)> RunPromptAsync(string? model, string? claudePath, string prompt, CancellationToken ct)
+    {
+        if (model is { Length: > 0 } m && !ModelRe().IsMatch(m)) throw new ApiException("The Claude model name isn't valid.");
+        var exe = Find(claudePath) ?? throw new ApiException(string.IsNullOrWhiteSpace(claudePath)
             ? "Claude Code isn't installed, or ZawSQL can't find it. Install it (https://claude.com/claude-code), sign in once by running \"claude\" in a terminal, or set its path in Preferences."
-            : $"Claude Code wasn't found at \"{req.ClaudePath}\". Check the path in Preferences.");
+            : $"Claude Code wasn't found at \"{claudePath}\". Check the path in Preferences.");
         // No tools: the answer comes from the prompt alone, and nothing is read or run on this machine.
         List<string> args = ["-p", "--output-format", "json", "--tools", ""];
-        if (req.Model is { Length: > 0 }) { args.Add("--model"); args.Add(req.Model); }
+        if (model is { Length: > 0 }) { args.Add("--model"); args.Add(model); }
         var (code, stdout, stderr) = await RunAsync(exe, args, prompt, Timeout, ct);
-        return ParseResult(code, stdout, stderr);
+        return ParseAnswer(code, stdout, stderr);
     }
 
     /// <summary>Reads <c>--output-format json</c> output: {"type":"result","is_error":…,"result":"…","total_cost_usd":…}.</summary>
     public static object ParseResult(int exitCode, string stdout, string stderr)
+    {
+        var (text, cost, ms) = ParseAnswer(exitCode, stdout, stderr);
+        return new { sql = ExtractSql(text), answer = text, costUsd = cost, durationMs = ms };
+    }
+
+    static (string Text, double? Cost, long? Ms) ParseAnswer(int exitCode, string stdout, string stderr)
     {
         JsonElement? root = null;
         // The JSON result is the last line that parses; anything printed before it is ignored.
@@ -187,7 +269,7 @@ public static partial class ClaudeCli
             throw new ApiException($"Claude Code: {Shorten(text.Length > 0 ? text : stderr.Trim())}{(LooksLikeLogin(text + stderr) ? " Run \"claude\" in a terminal once and sign in with your Claude account." : "")}");
         double? cost = r.TryGetProperty("total_cost_usd", out var cu) && cu.ValueKind == JsonValueKind.Number ? cu.GetDouble() : null;
         long? ms = r.TryGetProperty("duration_ms", out var d) && d.ValueKind == JsonValueKind.Number ? d.GetInt64() : null;
-        return new { sql = ExtractSql(text), answer = text, costUsd = cost, durationMs = ms };
+        return (text, cost, ms);
     }
 
     static bool LooksLikeLogin(string s) => s.Contains("login", StringComparison.OrdinalIgnoreCase) || s.Contains("log in", StringComparison.OrdinalIgnoreCase)

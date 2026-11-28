@@ -9,6 +9,7 @@ import { RowEditor } from './editing.js';
 import { whereKey, rememberWhere, forgetWhere, whereLabel } from '../wherehistory.js';
 import { rememberView, viewFor, withExistingSort } from '../dataviewstate.js';
 import { rowLinks, linkColumns, tableLabel } from '../fklogic.js';
+import { dataGenDialog } from './datagen.js';
 
 const BACK_LIMIT = 50;
 
@@ -398,6 +399,7 @@ export class DataView {
       });
     }
     items.push('-',
+      !this.meta?.isView && { label: 'Generate test data…', icon: 'sparkle', disabled: this.app.isReadOnly(this.target.sid), onClick: () => dataGenDialog(this.app, this.target.sid, this.target.db, this.target.table) },
       { label: 'Export grid rows…', icon: 'export', onClick: () => exportGridDialog(this.app, { columns: this.cols, rows: this.rows, selected: this.grid.selectedRowIndexes(), name: this.target.table }) },
       { label: 'Refresh', icon: 'refresh', shortcut: 'F5', onClick: () => this.load() });
     contextMenu(e.clientX, e.clientY, items);

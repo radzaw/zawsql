@@ -16,6 +16,7 @@ import { QueryView } from './views/query.js';
 import { userManager } from './views/users.js';
 import { maintenanceDialog } from './views/maintenance.js';
 import { importDialog } from './views/import.js';
+import { dataGenDialog } from './views/datagen.js';
 import { updateDialog, autoCheckUpdates, whatsNewAfterUpdate, whatsNewDialog } from './views/update.js';
 import { LibraryStore, editSnippetDialog } from './views/library.js';
 import { snippetVars } from './library.js';
@@ -991,6 +992,7 @@ class App {
       exportable.length && { label: 'Export as SQL…', icon: 'export', onClick: () => exportDumpDialog(this, sid, db, exportable) },
       tables.length && { label: 'Maintenance…', icon: 'maintenance', onClick: () => maintenanceDialog(this, sid, db, tables) },
       o.type === 'table' && objs.length === 1 && { label: 'Import CSV / Excel…', icon: 'import', disabled: ro, onClick: () => importDialog(this, sid, db, o.name) },
+      o.type === 'table' && objs.length === 1 && { label: 'Generate test data…', icon: 'sparkle', disabled: ro, onClick: () => dataGenDialog(this, sid, db, o.name) },
       o.type === 'table' && objs.length === 1 && { label: 'Rename…', disabled: ro, onClick: () => this.renameTable(sid, db, o.name) },
       tables.length && { label: tables.length > 1 ? `Empty ${tables.length} tables…` : 'Empty table (TRUNCATE)…', icon: 'empty', disabled: ro, onClick: () => this.truncateTables(sid, db, tables) },
       { label: objs.length > 1 ? `Drop ${objs.length} objects…` : `Drop ${o.type}…`, icon: 'trash', disabled: ro, onClick: () => this.dropObjects(sid, db, objs) },

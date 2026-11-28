@@ -14,7 +14,7 @@ import { exportGridDialog } from './tools.js';
 import { attachLibraryPanel, editQueryDialog } from './library.js';
 import { findSnippet } from '../library.js';
 import { ExplainView } from './explain.js';
-import { askClaudeDialog } from './claude.js';
+import { askClaudeDialog, explainWithClaude } from './claude.js';
 import { pickServers, groupTargets, confirmMultiRun } from './multirun.js';
 import { combineResults, summarySet, serverStatus, runSummary, sortGroups } from '../multirunlogic.js';
 import { statsSet, statsLine, returnedRows } from '../querystats.js';
@@ -117,6 +117,10 @@ export class QueryView {
       onAnalyze: () => this.explain({ analyze: true, sql: this.plan?.statement, ...this.planOn }),
       loadTable: (db, table) => get(`/s/${this.planSid}/table`, { db, table }, { quiet: true }),
       openSql: sql => this.app.openQueryTab(sql, 'Index'),
+      onAskClaude: req => explainWithClaude(this.app, {
+        sid: this.planSid, db: this.plan?.database || this.planOn?.db || this.app.sel.db, req,
+        onUseSql: sql => this.app.openQueryTab(`-- Suggested by Claude for:\n-- ${(this.plan?.statement || '').replace(/\s+/g, ' ').slice(0, 300)}\n-- Review before running.\n${sql.trim()}\n`, 'Claude'),
+      }),
     });
     this.planView.el.style.display = 'none';
     this.results = h('div', { class: 'q-results' }, this.resTabs, this.grid.el, this.planView.el, this.msg);
@@ -411,6 +415,8 @@ export class QueryView {
       r.sqls = stmts.map(s => s.sql);
       this.app.addHistory(mode === 'all' ? text : written.map(s => s.sql).join(';\n'), db); // as written, parameters included
       if (r.transaction) this.tx = { ...this.tx, ...r.transaction };
+      const failedSt = r.errors.length ? stmts[r.errors[0].statement] : null;
+      this.errorSource = failedSt ? this.editor.value.slice(base + failedSt.start, base + failedSt.end) : null;
       this.showResults(r);
       // What happened to the open transaction (COMMIT typed in the editor, DDL that committed implicitly, a deadlock …).
       for (const note of r.notes || []) this.app.log.info(note);
@@ -536,6 +542,45 @@ export class QueryView {
     this.msg.className = 'q-msg' + (r.errors.length ? ' err' : '');
     if (r.stats?.length) parts.push(statsLine(r.stats, returned));
     this.msg.textContent = (r.errors.length ? `Error: ${r.errors[0].message}   ` : '') + parts.join('   ');
+    const er = r.errors[0];
+    const failed = er && r.sqls?.[er.statement];
+    if (failed) {
+      const sid = this.resultSid, db = r.database || this.app.sel.db;
+      this.msg.prepend(h('button', { class: 'btn q-msg-btn', title: 'Ask Claude Code what the error means and how to fix it', html: icon('sparkle') + '<span>Explain error</span>',
+        onclick: () => this.explainError({ sid, db, sql: failed, written: this.errorSource, error: er }) }));
+    }
+  }
+
+  /**
+   * Claude explains a failed statement; a corrected statement replaces it in the editor (one undo step).
+   * `sql` is what ran (parameters filled in), `written` the statement as it is in the editor.
+   */
+  explainError({ sid, db, sql, written, error }) {
+    return explainWithClaude(this.app, {
+      sid, db,
+      req: { kind: 'error', sql, error: error.message, errorCode: error.code ? String(error.code) : null },
+      onUseSql: fix => this.replaceStatement(written || sql, fix),
+    });
+  }
+
+  /** Puts `sql` in place of the statement `old` in the editor (or at the end when it's no longer there). */
+  replaceStatement(old, sql) {
+    const ed = this.editor;
+    const at = old.trim() ? ed.value.indexOf(old.trim()) : -1;
+    if (at >= 0) {
+      let stop = at + old.trim().length;
+      // The statement's own semicolon goes too when the fix brings its own.
+      const semi = /^\s*;/.exec(ed.value.slice(stop));
+      if (semi && sql.trim().endsWith(';')) stop += semi[0].length;
+      ed.selectRange(at, stop);
+      ed.insert(sql.trim());
+    } else {
+      const v = ed.value;
+      ed.selectRange(v.length, v.length);
+      ed.insert((v && !v.endsWith('\n') ? '\n\n' : '') + sql.trim() + '\n');
+    }
+    ed.focus?.();
+    this.app.setStatus('Claude\'s SQL is in the editor. Review it before running.');
   }
 
   /** Result set tabs, plus a "Plan" tab once a statement has been explained. */

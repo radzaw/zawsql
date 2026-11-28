@@ -242,6 +242,13 @@ public static class Api
             incoming = await TableMeta.LoadReferencingKeysAsync(c, null, db, table, ct),
         }));
 
+        // Test data generator: the table's columns, keys, parent key samples and key maxima. Not logged.
+        s.MapGet("/datagen", (string sid, string db, string table, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, ses, _) =>
+        {
+            if (ses.Profile.ReadOnly) throw new ApiException(ReadOnlyMessage);
+            return await DataGen.InfoAsync(c, db, table, ct);
+        }));
+
         s.MapGet("/columns", (string sid, string db, string table, ConnectionManager cm, CancellationToken ct) => Meta(cm, sid, ct, async (c, _, _) =>
             (await Db.RowsAsync(c, null, $"SHOW COLUMNS FROM {Db.Q(db, table)}", ct)).Select(r => new { name = r["Field"], type = r["Type"] }).ToList()));
 
@@ -463,6 +470,38 @@ public static class Api
             var prompt = ClaudeCli.BuildPrompt(req.Prompt, version, req.Database, schema, req.Sql, ses.Profile.ReadOnly);
             log.Add($"/* Asking Claude Code for SQL{(schema != null ? $" with the schema of {req.Database} ({tables} table{(tables == 1 ? "" : "s")})" : "")}{(string.IsNullOrWhiteSpace(req.Sql) ? "" : " and the editor's SQL")} */");
             return await ClaudeCli.AskAsync(req, prompt, ct);
+        }));
+
+        // Claude Code explains a failed statement or a query plan. Sent: the statement, the error or plan, and table
+        // definitions (names, types, indexes) – never row data. Nothing is run.
+        s.MapPost("/claude/explain", (string sid, ClaudeExplainRequest req, ConnectionManager cm, CancellationToken ct) => Run(async log =>
+        {
+            if (string.IsNullOrWhiteSpace(req.Sql)) throw new ApiException("There is no statement to explain.");
+            if (req.Kind is not ("error" or "plan")) throw new ApiException("Unknown kind of explanation.");
+            var ses = cm.Get(sid);
+            string? schema = null;
+            var creates = new List<(string, string)>();
+            string version;
+            await using (var c = await cm.OpenMetaAsync(ses, ct))
+            {
+                version = c.ServerVersion;
+                if (req.Kind == "error" && req.Schema && !string.IsNullOrEmpty(req.Database)) (schema, _) = await ClaudeCli.SchemaAsync(c, req.Database, ct);
+                if (req.Kind == "plan" && req.Schema)
+                {
+                    foreach (var t in (req.Tables ?? []).DistinctBy(t => ((t.Db ?? req.Database)?.ToLowerInvariant(), t.Table.ToLowerInvariant())).Take(ClaudeCli.MaxPlanTables))
+                    {
+                        var db = string.IsNullOrEmpty(t.Db) ? req.Database : t.Db;
+                        if (string.IsNullOrEmpty(db) || string.IsNullOrEmpty(t.Table)) continue;
+                        // Derived tables and the like (<derived2>) have no definition; a table that's gone is skipped.
+                        try { if (await TableMeta.ShowCreateAsync(c, null, db, "TABLE", t.Table, ct) is { } create) creates.Add(($"{db}.{t.Table}", create)); }
+                        catch (MySqlException) { }
+                        catch (ApiException) { }
+                    }
+                }
+            }
+            var prompt = ClaudeCli.BuildExplainPrompt(req, version, schema, creates, ses.Profile.ReadOnly);
+            log.Add($"/* Asking Claude Code to explain {(req.Kind == "plan" ? "the plan" : "the error")}{(creates.Count > 0 ? $" with the definitions of {creates.Count} table{(creates.Count == 1 ? "" : "s")}" : schema != null ? $" with the schema of {req.Database}" : "")} */");
+            return await ClaudeCli.ExplainAsync(req, prompt, ct);
         }));
 
         s.MapPost("/cancel", (string sid, string? tab, ConnectionManager cm) => RunSync(() =>

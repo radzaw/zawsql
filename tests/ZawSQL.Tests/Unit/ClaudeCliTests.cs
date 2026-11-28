@@ -91,6 +91,49 @@ public class ClaudeCliTests
     }
 
     [Fact]
+    public void Explaining_an_error_sends_the_statement_the_error_and_the_schema()
+    {
+        var req = new ClaudeExplainRequest("error", "SELECT nam FROM customers;", "shop", Error: "Unknown column 'nam' in 'field list'", ErrorCode: "1054");
+        var p = ClaudeCli.BuildExplainPrompt(req, "8.4.3", "customers(id int PK, name varchar(100))\n", [], readOnly: false);
+        Assert.Contains("why a SQL statement failed", p);
+        Assert.Contains("Server: MySQL 8.4.3", p);
+        Assert.Contains("customers(id int PK, name varchar(100))", p);
+        Assert.Contains("SELECT nam FROM customers;", p);
+        Assert.Contains("error 1054: Unknown column 'nam'", p);
+        Assert.DoesNotContain("EXPLAIN FORMAT=JSON", p);
+        Assert.DoesNotContain("read-only", p);
+    }
+
+    [Fact]
+    public void Explaining_a_plan_sends_the_plans_findings_and_table_definitions()
+    {
+        var req = new ClaudeExplainRequest("plan", "SELECT * FROM orders WHERE total > 5", "shop",
+            PlanJson: "{\"query_block\":{}}", AnalyzeTree: "-> Filter (actual rows=3)", Findings: ["orders: full table scan"], Question: "Would an index help?");
+        var p = ClaudeCli.BuildExplainPrompt(req, "10.11.6-MariaDB", null, [("shop.orders", "CREATE TABLE `orders` (`id` int)")], readOnly: true);
+        Assert.Contains("execution plan", p);
+        Assert.Contains("Server: MariaDB", p);
+        Assert.Contains("Definition of shop.orders:", p);
+        Assert.Contains("CREATE TABLE `orders`", p);
+        Assert.Contains("{\"query_block\":{}}", p);
+        Assert.Contains("-> Filter (actual rows=3)", p);
+        Assert.Contains("- orders: full table scan", p);
+        Assert.Contains("Would an index help?", p);
+        Assert.Contains("read-only", p);
+        // A huge plan is cut off.
+        var big = ClaudeCli.BuildExplainPrompt(req with { PlanJson = new string('x', ClaudeCli.MaxPlanChars + 500) }, "8.0.36", null, [], false);
+        Assert.Contains("… (cut off)", big);
+        Assert.True(big.Length < ClaudeCli.MaxPlanChars + 5000);
+    }
+
+    [Fact]
+    public void Only_sql_code_blocks_count_as_suggested_sql()
+    {
+        Assert.Null(ClaudeCli.SuggestedSql("The column is misspelt. Use `name` instead."));
+        Assert.Null(ClaudeCli.SuggestedSql("```json\n{}\n```"));
+        Assert.Equal("SELECT name FROM t;\n\nCREATE INDEX i ON t (a);", ClaudeCli.SuggestedSql("Fix:\n```sql\nSELECT name FROM t;\n```\nand\n```mysql\nCREATE INDEX i ON t (a);\n```"));
+    }
+
+    [Fact]
     public void A_configured_path_that_does_not_exist_is_not_found() =>
         Assert.Null(ClaudeCli.Find(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "claude.exe")));
 }

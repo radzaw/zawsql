@@ -7,7 +7,7 @@ import { Grid } from '../grid.js';
 import { highlightSql } from '../editor.js';
 import { formatSql } from '../sqlformat.js';
 import { parsePlan, findIssues, totalCost, tables, parseAnalyzeTree, flattenSteps, misestimates } from '../explainlogic.js';
-import { suggestIndexes, finishSuggestion, describeColumns } from '../indexadvice.js';
+import { suggestIndexes, finishSuggestion, describeColumns, resolveTables } from '../indexadvice.js';
 
 const VIEWS = [['diagram', 'Diagram'], ['measured', 'Measured'], ['table', 'Table'], ['json', 'JSON']];
 const SEV_ICON = { critical: 'error', warning: 'warning', info: 'info', good: 'check', ok: 'info' };
@@ -22,13 +22,17 @@ export class ExplainView {
    * `onAnalyze()` re-explains with ANALYZE (which runs the statement); `loadTable(db, table)` returns a table's columns
    * and indexes (an /table response) to check index suggestions; `openSql(sql)` opens SQL in a new query tab.
    */
-  constructor({ onAnalyze, loadTable, openSql } = {}) {
+  constructor({ onAnalyze, loadTable, openSql, onAskClaude } = {}) {
     this.loadTable = loadTable;
     this.openSql = openSql;
     this.onAnalyze = onAnalyze;
     this.view = 'diagram';
     this.switcher = h('div', { class: 'subtabs' });
     this.analyzeBtn = h('button', { class: 'btn', title: 'Runs the statement to measure actual rows and time', onclick: () => this.onAnalyze?.() }, 'Analyze (runs it)');
+    this.claudeBtn = h('button', { class: 'btn', title: 'Ask Claude Code to explain this plan in plain words and suggest improvements', html: icon('sparkle') + '<span>Explain with Claude</span>',
+      onclick: () => this.askClaude() });
+    if (!onAskClaude) this.claudeBtn.style.display = 'none';
+    this.onAskClaude = onAskClaude;
     this.caption = h('div', { class: 'xp-caption' });
     this.issuesBox = h('div', { class: 'xp-issues' });
     this.adviceBox = h('div', { class: 'xp-advice' });
@@ -37,7 +41,7 @@ export class ExplainView {
     this.body = h('div', { class: 'xp-body' });
     this.grid = new Grid({ gutter: false, emptyText: '' });
     this.el = h('div', { class: 'xp' },
-      h('div', { class: 'xp-bar' }, this.switcher, h('div', { class: 'grow' }), this.analyzeBtn),
+      h('div', { class: 'xp-bar' }, this.switcher, h('div', { class: 'grow' }), this.claudeBtn, this.analyzeBtn),
       this.caption, this.issuesBox, this.adviceBox, this.body);
   }
 
@@ -56,6 +60,22 @@ export class ExplainView {
     if (r.analyzed) this.view = this.steps ? 'measured' : 'diagram'; // MariaDB's ANALYZE puts actual rows and time on the diagram
     this.render();
     this.loadAdvice();
+  }
+
+  /** Claude explains the plan: the statement, the plans, the findings above and the tables (for their definitions). */
+  askClaude() {
+    const r = this.r;
+    if (!r || !this.onAskClaude) return;
+    let tables = [];
+    try { tables = Object.values(resolveTables(r.statement, r.notes, r.database)); } catch { /* a statement this doesn't read */ }
+    this.onAskClaude({
+      kind: 'plan',
+      sql: r.statement,
+      planJson: r.json,
+      analyzeTree: r.analyzeTree || null,
+      findings: this.issues.map(i => `${i.text}${i.hint ? ` (${i.hint})` : ''}`),
+      tables: tables.map(t => ({ db: t.db, table: t.table })),
+    });
   }
 
   /** Index suggestions: candidates from the plan, checked against each table's columns and indexes. */

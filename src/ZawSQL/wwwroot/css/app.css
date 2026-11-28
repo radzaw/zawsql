@@ -1197,3 +1197,35 @@ select.cell-inp { padding: 0 4px; }
 .claude-dlg textarea { min-height: 90px; }
 .claude-status { min-height: 18px; font-size: 12px; white-space: pre-wrap; user-select: text; }
 .claude-status.err { color: var(--err); }
+.dg { display: flex; flex-direction: column; gap: 8px; }
+.dg-top { display: flex; align-items: center; gap: 16px; }
+.dg-top label { display: inline-flex; align-items: center; gap: 6px; }
+.dg-cols { max-height: 42vh; overflow: auto; border: 1px solid var(--line); border-radius: 6px; }
+.dg-table th { position: sticky; top: 0; z-index: 1; }
+.dg-table td { padding: 2px 6px; vertical-align: top; }
+.dg-table td .inp { width: 100%; }
+.dg-name { white-space: nowrap; }
+.dg-type { font-family: var(--mono); font-size: 11.5px; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dg-warn { font-size: 11.5px; color: var(--muted); }
+.dg-warn:empty { display: none; }
+.dg-warn.err { color: var(--err); }
+.dg-preview { height: 200px; display: flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.dg-preview .grid { flex: 1; }
+.dg-foot { display: flex; align-items: center; gap: 10px; min-height: 26px; }
+.dg-status { flex: 1; font-size: 12px; white-space: pre-wrap; }
+.dg-status.err { color: var(--err); }
+.dg-progress { width: 180px; }
+.q-msg-btn { float: right; margin: -2px 0 -2px 8px; padding: 1px 8px; font-size: 12px; display: inline-flex; align-items: center; gap: 4px; }
+.q-msg-btn .ic { width: 13px; height: 13px; }
+.claude-what { font-size: 12px; }
+.claude-answer { max-height: 52vh; overflow: auto; user-select: text; line-height: 1.5; padding: 8px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--canvas); }
+.claude-answer:empty { display: none; }
+.claude-answer p { margin: 0 0 8px; }
+.claude-answer ul { margin: 0 0 8px; padding-left: 20px; }
+.claude-answer li { margin: 2px 0; }
+.claude-answer code { font-family: var(--mono, monospace); font-size: 0.92em; padding: 0 3px; border-radius: 3px; background: var(--accent-soft); }
+.claude-answer pre.claude-code { margin: 4px 0 8px; padding: 8px; white-space: pre-wrap; border-radius: 4px; background: var(--surface); border: 1px solid var(--line); }
+.claude-follow { display: flex; gap: 6px; }
+.claude-follow .inp { flex: 1; }
+.claude-actions { display: flex; gap: 6px; }
+.claude-actions:not(:has(button:not([style*="none"]))) { display: none; }

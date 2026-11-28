@@ -83,6 +83,40 @@ public class BrowseTests(TestDatabase t)
     }
 
     [DbFact]
+    public async Task Test_data_info_has_columns_keys_and_parent_samples()
+    {
+        var res = await t.App.GetAsync($"/s/{t.Sid}/datagen?db={t.Db}&table=orders");
+        Assert.Empty(res.Log);
+        var o = res.Expect();
+        Assert.Contains(o.GetProperty("columns").EnumerateArray(), c => c.GetProperty("name").GetString() == "customer_id");
+        Assert.True(o.GetProperty("columns").EnumerateArray().First().GetProperty("isAutoIncrement").GetBoolean());
+        var sample = Assert.Single(o.GetProperty("samples").EnumerateArray());
+        Assert.Equal("fk_orders_customer", sample.GetProperty("name").GetString());
+        Assert.True(sample.GetProperty("rows").GetArrayLength() >= 2);
+        Assert.Equal("int", sample.GetProperty("kinds")[0].GetString());
+        // orders.id is AUTO_INCREMENT: no maximum needed.
+        Assert.Empty(o.GetProperty("maxima").EnumerateObject());
+
+        // sales has a composite primary key with a non-AUTO_INCREMENT integer: its current maximum comes along.
+        var s = (await t.App.GetAsync($"/s/{t.Sid}/datagen?db={t.Db}&table=sales")).Expect();
+        Assert.True(s.GetProperty("maxima").TryGetProperty("id", out _));
+    }
+
+    [DbFact]
+    public async Task Claude_explain_checks_its_request_before_starting_claude()
+    {
+        var empty = await t.App.PostAsync($"/s/{t.Sid}/claude/explain", new { kind = "error", sql = " ", database = t.Db });
+        Assert.False(empty.Ok);
+        Assert.Contains("no statement", empty.Error);
+        var kind = await t.App.PostAsync($"/s/{t.Sid}/claude/explain", new { kind = "poem", sql = "SELECT 1", database = t.Db });
+        Assert.False(kind.Ok);
+        Assert.Contains("Unknown kind", kind.Error);
+        var model = await t.App.PostAsync($"/s/{t.Sid}/claude/explain", new { kind = "error", sql = "SELECT 1", error = "x", database = t.Db, model = "bad model; rm -rf" });
+        Assert.False(model.Ok);
+        Assert.Contains("model name", model.Error);
+    }
+
+    [DbFact]
     public async Task Data_values_are_formatted_for_display()
     {
         var d = (await t.App.GetAsync($"/s/{t.Sid}/data?db={t.Db}&table=customers&limit=1000&order=id")).Expect();
